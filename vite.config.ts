@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite'
 import path from 'path'
+import fs from 'fs'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-// Load environment variables
+// Load environment variables from the shared env file
 import dotenv from 'dotenv'
-dotenv.config()
+
+// Load from /vercel/share/.env.project if it exists, otherwise load from .env files
+const envPath = fs.existsSync('/vercel/share/.env.project') ? '/vercel/share/.env.project' : undefined
+dotenv.config({ path: envPath })
 
 
 function figmaAssetResolver() {

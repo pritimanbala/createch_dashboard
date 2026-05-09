@@ -1,47 +1,18 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
-let supabaseInstance: SupabaseClient | null = null;
+// Get environment variables from Vite (injected by vite.config.ts define option)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-function getSupabaseClient(): SupabaseClient {
-  if (supabaseInstance) {
-    return supabaseInstance;
-  }
-
-  // Try to get environment variables from Vite (injected by vite.config.ts define option)
-  // Also try window object in case injected there
-  const supabaseUrl = (
-    (import.meta.env.VITE_SUPABASE_URL as string) ||
-    (globalThis as any).VITE_SUPABASE_URL ||
-    (globalThis as any).__SUPABASE_URL
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    `Missing Supabase credentials.\n` +
+    `URL: ${supabaseUrl ? 'set' : 'MISSING'}\n` +
+    `Key: ${supabaseAnonKey ? 'set' : 'MISSING'}`
   );
-  
-  const supabaseAnonKey = (
-    (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
-    (globalThis as any).VITE_SUPABASE_ANON_KEY ||
-    (globalThis as any).__SUPABASE_ANON_KEY
-  );
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[v0] Supabase initialization failed', {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseAnonKey,
-      importMetaEnv: Object.keys(import.meta.env).filter(k => k.includes('SUPABASE')),
-    });
-    throw new Error(
-      'Missing Supabase credentials. Please ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.'
-    );
-  }
-
-  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
-  return supabaseInstance;
 }
 
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_, prop) {
-    const client = getSupabaseClient();
-    return (client as any)[prop];
-  },
-});
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Types for processes
 export interface ProcessRecord {
