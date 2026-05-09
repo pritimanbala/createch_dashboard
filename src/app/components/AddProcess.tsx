@@ -1,8 +1,25 @@
-import { useState } from "react";
-import { Clock, Leaf, Zap, Cloud, Droplets, Wind, ThermometerSun, AlertTriangle, CheckCircle, Loader, AlertCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Clock, Leaf, Zap, Cloud, Droplets, Wind, ThermometerSun, AlertTriangle, CheckCircle, Loader, AlertCircle, MapPin, Truck, Wrench } from "lucide-react";
 import { createProcess, checkTimelineConflict, ProcessRecord } from "@/lib/supabase";
+import { getWeatherForecast, WeatherForecast } from "@/lib/weather";
+import { calculateScalableCost, calculateScalableResources, calculateTransportationCost } from "@/lib/calculations";
 
 type Step = "initial" | "constraints" | "loading" | "results" | "confirm";
+
+const MATERIAL_SHAPES = [
+  "U-Shape",
+  "I-Beam",
+  "T-Beam",
+  "Box Girder",
+  "Wall Panel",
+  "Slab Panel",
+  "Pier Cap",
+  "Culvert",
+  "Spigot",
+  "Bearing Block",
+  "Elastomeric Bearing",
+  "Expansion Joint",
+];
 
 interface ProcessSuggestion {
   type: "cheapest" | "fastest" | "greenest";
@@ -43,19 +60,44 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
   const [timelineConflicts, setTimelineConflicts] = useState<ProcessRecord[]>([]);
 
   // Form fields
-  const [materialName, setMaterialName] = useState("");
-  const [materialDimensions, setMaterialDimensions] = useState("");
+  const [materialName, setMaterialName] = useState("U-Shape");
+  const [materialLengthMm, setMaterialLengthMm] = useState(5000);
+  const [materialWidthMm, setMaterialWidthMm] = useState(3000);
+  const [materialHeightMm, setMaterialHeightMm] = useState(1500);
   const [quantity, setQuantity] = useState(1);
+  const [projectLocation, setProjectLocation] = useState("Mumbai");
   const [scheduledStartTime, setScheduledStartTime] = useState("");
   const [scheduledEndTime, setScheduledEndTime] = useState("");
   const [sustainabilityPriority, setSustainabilityPriority] = useState(50);
   const [desiredStrength, setDesiredStrength] = useState(15);
-  const [transportationLocation, setTransportationLocation] = useState("");
-  const [transportationFactor, setTransportationFactor] = useState(1);
+  const [transportationLocation, setTransportationLocation] = useState("Site Office");
+  const [transportationDistanceKm, setTransportationDistanceKm] = useState(25);
+  const [transportationType, setTransportationType] = useState("road");
   const [transportationCost, setTransportationCost] = useState(0);
   const [moulds_required, setMouldsRequired] = useState(1);
   const [cranes_required, setCranesRequired] = useState(1);
   const [castingTimeMinutes, setCastingTimeMinutes] = useState(30);
+  const [weatherForecast, setWeatherForecast] = useState<WeatherForecast | null>(null);
+  const [loadingWeather, setLoadingWeather] = useState(false);
+
+  // Fetch weather when constraints step is entered or location changes
+  useEffect(() => {
+    if (step === "constraints" && projectLocation && !weatherForecast) {
+      fetchWeather();
+    }
+  }, [step, projectLocation]);
+
+  const fetchWeather = async () => {
+    setLoadingWeather(true);
+    try {
+      const forecast = await getWeatherForecast(projectLocation);
+      setWeatherForecast(forecast);
+    } catch (err) {
+      console.error('[v0] Failed to fetch weather:', err);
+    } finally {
+      setLoadingWeather(false);
+    }
+  };
 
   const suggestions: ProcessSuggestion[] = [
     {
@@ -187,7 +229,20 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
     setStep("loading");
     setError(null);
 
-    // Simulate AI processing
+    // Calculate scalable costs and simulate AI processing
+    const baseCheapestCost = 8450;
+    const baseTransportCost = 5000;
+    
+    const scaledCheapestCost = calculateScalableCost(baseCheapestCost, quantity, 0.85);
+    const scaledTransportCost = calculateTransportationCost(baseTransportCost, quantity, transportationDistanceKm, transportationType);
+    const scaledMoulds = calculateScalableResources(3, quantity);
+    const scaledCranes = calculateScalableResources(1, quantity);
+
+    // Update moulds and cranes based on quantity
+    setMouldsRequired(scaledMoulds);
+    setCranesRequired(scaledCranes);
+    setTransportationCost(scaledTransportCost);
+
     setTimeout(() => {
       setIsLoading(false);
       setStep("results");
@@ -331,32 +386,81 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
           )}
 
           <div className="space-y-6">
-            {/* Material Name */}
+            {/* Project Location */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Material Name
+                <MapPin className="inline mr-2" size={18} />
+                Project Location
               </label>
               <input
                 type="text"
-                value={materialName}
-                onChange={(e) => setMaterialName(e.target.value)}
-                placeholder="e.g., Pier Cap, Wall Panel, Custom Element"
+                value={projectLocation}
+                onChange={(e) => {
+                  setProjectLocation(e.target.value);
+                  setWeatherForecast(null); // Reset weather when location changes
+                }}
+                placeholder="e.g., Mumbai, Delhi, Bangalore"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
               />
             </div>
 
-            {/* Material Dimensions */}
+            {/* Material Shape */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Material Dimensions
+                Material Shape
               </label>
-              <input
-                type="text"
-                value={materialDimensions}
-                onChange={(e) => setMaterialDimensions(e.target.value)}
-                placeholder="e.g., 2.5m × 1.2m × 0.8m"
+              <select
+                value={materialName}
+                onChange={(e) => setMaterialName(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
-              />
+              >
+                {MATERIAL_SHAPES.map(shape => (
+                  <option key={shape} value={shape}>{shape}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Material Dimensions */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Length (mm)
+                </label>
+                <input
+                  type="number"
+                  value={materialLengthMm}
+                  onChange={(e) => setMaterialLengthMm(Number(e.target.value))}
+                  min={100}
+                  step={100}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Width (mm)
+                </label>
+                <input
+                  type="number"
+                  value={materialWidthMm}
+                  onChange={(e) => setMaterialWidthMm(Number(e.target.value))}
+                  min={100}
+                  step={100}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Height (mm)
+                </label>
+                <input
+                  type="number"
+                  value={materialHeightMm}
+                  onChange={(e) => setMaterialHeightMm(Number(e.target.value))}
+                  min={100}
+                  step={100}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                />
+              </div>
             </div>
 
             {/* Quantity */}
@@ -439,6 +543,95 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
               />
             </div>
 
+            {/* Transportation Details */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Truck size={20} /> Transportation
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Departure Location
+                  </label>
+                  <input
+                    type="text"
+                    value={transportationLocation}
+                    onChange={(e) => setTransportationLocation(e.target.value)}
+                    placeholder="e.g., Factory, Plant, Warehouse"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Distance (km)
+                    </label>
+                    <input
+                      type="number"
+                      value={transportationDistanceKm}
+                      onChange={(e) => setTransportationDistanceKm(Number(e.target.value))}
+                      min={1}
+                      step={5}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Transport Type
+                    </label>
+                    <select
+                      value={transportationType}
+                      onChange={(e) => setTransportationType(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                    >
+                      <option value="road">Road</option>
+                      <option value="viaduct">Viaduct</option>
+                      <option value="rail">Rail</option>
+                      <option value="sea">Sea</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Moulds Needed
+                    </label>
+                    <input
+                      type="number"
+                      value={moulds_required}
+                      onChange={(e) => setMouldsRequired(Number(e.target.value))}
+                      min={1}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Weather Forecast */}
+            {weatherForecast && (
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <Cloud size={20} /> Weather Forecast - {weatherForecast.location}
+                </h3>
+                <div className="grid grid-cols-4 gap-3">
+                  {weatherForecast.forecast.slice(0, 4).map((day, idx) => (
+                    <div key={idx} className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <p className="text-xs font-semibold text-gray-600 mb-2">{new Date(day.date).toLocaleDateString()}</p>
+                      <div className="text-2xl font-bold text-gray-900 mb-2">{day.temperature}°C</div>
+                      <div className="text-xs space-y-1">
+                        <div className="flex items-center gap-1">
+                          <Droplets size={12} /> {day.humidity}%
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Wind size={12} /> {day.windSpeed} km/h
+                        </div>
+                        <div className="text-orange-600 font-semibold">{day.rainProbability}% Rain</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3 pt-4">
               <button
                 onClick={() => {
@@ -506,9 +699,14 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                   </div>
                   <div>
                     <h3 className="font-bold text-gray-900">{suggestion.title}</h3>
-                    <div className="text-2xl font-bold text-gray-900">{suggestion.value}</div>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {suggestion.type === 'cheapest' 
+                        ? `₹${calculateScalableCost(parseInt(suggestion.value.replace(/[₹,]/g, '')), quantity, 0.85).toLocaleString()}`
+                        : suggestion.value
+                      }
+                    </div>
                     <div className={`text-sm font-semibold ${suggestion.change.startsWith('-') ? 'text-green-700' : 'text-red-700'}`}>
-                      {suggestion.change.startsWith('-') ? '↓' : '↑'} {suggestion.change}
+                      {suggestion.change.startsWith('-') ? '↓' : '↑'} {suggestion.change} for {quantity} unit{quantity > 1 ? 's' : ''}
                     </div>
                   </div>
                 </div>
@@ -557,44 +755,48 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         <div className="bg-white rounded-xl p-6 shadow-sm border-2 border-orange-300">
           <h2 className="text-lg font-bold text-gray-900 mb-4">
             <Cloud className="inline mr-2" size={20} />
-            Weather Integration for Next 7 Days
+            4-Day Weather Forecast - {projectLocation}
           </h2>
 
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <ThermometerSun className="mx-auto mb-1 text-orange-500" size={24} />
-              <div className="text-2xl font-bold text-gray-900">32°C</div>
-              <div className="text-xs text-gray-600">Now</div>
-            </div>
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <Droplets className="mx-auto mb-1 text-blue-500" size={24} />
-              <div className="text-2xl font-bold text-gray-900">68%</div>
-              <div className="text-xs text-gray-600">Humidity</div>
-            </div>
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <Wind className="mx-auto mb-1 text-gray-500" size={24} />
-              <div className="text-2xl font-bold text-gray-900">12</div>
-              <div className="text-xs text-gray-600">km/h Wind</div>
-            </div>
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <Cloud className="mx-auto mb-1 text-gray-500" size={24} />
-              <div className="text-2xl font-bold text-gray-900">30%</div>
-              <div className="text-xs text-gray-600">Rain Risk</div>
-            </div>
-          </div>
-
-          <div className="bg-orange-50 border border-orange-300 rounded-lg p-3">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="text-orange-600 mt-0.5 flex-shrink-0" size={18} />
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Weather Impact Alert</p>
-                <p className="text-sm text-gray-700 mt-1">
-                  High humidity may delay normal curing by <strong>3.2 hours</strong>.
-                  Rain expected on May 10-11.
-                </p>
+          {weatherForecast ? (
+            <>
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                {weatherForecast.forecast.slice(0, 4).map((day, idx) => (
+                  <div key={idx} className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-gray-600 mb-2">{new Date(day.date).toLocaleDateString()}</p>
+                    <ThermometerSun className="mx-auto mb-1 text-orange-500" size={24} />
+                    <div className="text-2xl font-bold text-gray-900">{day.temperature}°C</div>
+                    <div className="text-xs space-y-1 mt-2">
+                      <div className="flex items-center justify-center gap-1">
+                        <Droplets size={12} /> {day.humidity}%
+                      </div>
+                      <div className="flex items-center justify-center gap-1">
+                        <Wind size={12} /> {day.windSpeed} km/h
+                      </div>
+                      <div className="text-orange-600 font-semibold">{day.rainProbability}% Rain</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
+
+              {weatherForecast.forecast.some(d => d.rainProbability > 40) && (
+                <div className="bg-orange-50 border border-orange-300 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="text-orange-600 mt-0.5 flex-shrink-0" size={18} />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Weather Impact Alert</p>
+                      <p className="text-sm text-gray-700 mt-1">
+                        High rain probability detected. This may extend curing time by 2-4 hours.
+                        Recommend delay until weather improves.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-gray-600">Loading weather data for {projectLocation}...</p>
+          )}
         </div>
       </div>
     );

@@ -21,6 +21,9 @@ export interface ProcessRecord {
   updated_at: string;
   material_name: string;
   material_dimensions: string;
+  material_length_mm?: number;
+  material_width_mm?: number;
+  material_height_mm?: number;
   quantity: number;
   scheduled_start_time: string;
   scheduled_end_time: string;
@@ -37,6 +40,17 @@ export interface ProcessRecord {
   chambers: number;
   mould: number;
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  transportation_location?: string;
+  transportation_factor?: number;
+  transportation_cost?: number;
+  transportation_distance_km?: number;
+  transportation_type?: string;
+  moulds_required?: number;
+  cranes_required?: number;
+  casting_time_minutes?: number;
+  project_location?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 // Fetch all processes
