@@ -203,8 +203,8 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
       setError("Material name is required");
       return false;
     }
-    if (!materialDimensions.trim()) {
-      setError("Material dimensions are required");
+    if (!materialLengthMm || !materialWidthMm || !materialHeightMm) {
+      setError("Material dimensions (length, width, height) are required");
       return false;
     }
     if (!scheduledStartTime) {
@@ -284,7 +284,10 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
       // Create the process in Supabase
       const newProcess = await createProcess({
         material_name: materialName,
-        material_dimensions: materialDimensions,
+        material_dimensions: `${materialLengthMm}mm × ${materialWidthMm}mm × ${materialHeightMm}mm`,
+        material_length_mm: materialLengthMm,
+        material_width_mm: materialWidthMm,
+        material_height_mm: materialHeightMm,
         quantity,
         scheduled_start_time: scheduledStartTime,
         scheduled_end_time: scheduledEndTime,
@@ -302,8 +305,10 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         mould: selectedSuggestion.parameters.mould,
         status: "scheduled",
         transportation_location: transportationLocation || null,
-        transportation_factor: transportationFactor || null,
+        transportation_distance_km: transportationDistanceKm || null,
+        transportation_type: transportationType || "road",
         transportation_cost: transportationCost || null,
+        project_location: projectLocation || null,
         moulds_required,
         cranes_required,
         casting_time_minutes: castingTimeMinutes,
@@ -897,7 +902,7 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-xs text-gray-600">Dimensions</p>
-                  <p className="text-lg font-bold text-gray-900">{materialDimensions}</p>
+                  <p className="text-lg font-bold text-gray-900">{materialLengthMm}×{materialWidthMm}×{materialHeightMm}mm</p>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-xs text-gray-600">Quantity</p>
