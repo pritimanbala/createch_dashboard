@@ -235,11 +235,18 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
     
     const scaledCheapestCost = calculateScalableCost(baseCheapestCost, quantity, 0.85);
     const scaledTransportCost = calculateTransportationCost(baseTransportCost, quantity, transportationDistanceKm, transportationType);
-    const scaledMoulds = calculateScalableResources(3, quantity);
+    
+    // Calculate moulds needed based on casting time and total available duration
+    const totalDurationMinutes = scheduledStartTime && scheduledEndTime 
+      ? Math.round((new Date(scheduledEndTime).getTime() - new Date(scheduledStartTime).getTime()) / 60000)
+      : 480; // default 8 hours
+    const totalCastingTimeNeeded = castingTimeMinutes * quantity;
+    const mouldsNeeded = Math.ceil(totalCastingTimeNeeded / totalDurationMinutes) || 1;
+    
     const scaledCranes = calculateScalableResources(1, quantity);
 
-    // Update moulds and cranes based on quantity
-    setMouldsRequired(scaledMoulds);
+    // Update moulds and cranes based on time constraints
+    setMouldsRequired(Math.max(mouldsNeeded, calculateScalableResources(3, quantity)));
     setCranesRequired(scaledCranes);
     setTransportationCost(scaledTransportCost);
 
@@ -509,6 +516,24 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
               )}
             </div>
 
+            {/* Casting Time Per Unit */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Casting Time Per Unit (minutes)
+              </label>
+              <input
+                type="number"
+                value={castingTimeMinutes}
+                onChange={(e) => setCastingTimeMinutes(Number(e.target.value))}
+                min={5}
+                step={5}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+              />
+              <p className="text-xs text-gray-600 mt-1">
+                Total casting time: {castingTimeMinutes * quantity} minutes ({Math.round(castingTimeMinutes * quantity / 60)} hours)
+              </p>
+            </div>
+
             {/* Sustainability Priority */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -589,18 +614,6 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                       <option value="rail">Rail</option>
                       <option value="sea">Sea</option>
                     </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Moulds Needed
-                    </label>
-                    <input
-                      type="number"
-                      value={moulds_required}
-                      onChange={(e) => setMouldsRequired(Number(e.target.value))}
-                      min={1}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
-                    />
                   </div>
                 </div>
               </div>
@@ -711,21 +724,63 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                   </div>
                 </div>
 
-                {/* Parameters Table */}
+                {/* Parameters Table - Per Unit & Total */}
                 <div className="bg-white/80 rounded-lg p-4 mb-4 text-sm">
-                  <h4 className="font-bold text-gray-900 mb-3">Mix Parameters</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div><span className="text-gray-600">Cement:</span> <span className="font-semibold">{suggestion.parameters.cement}kg</span></div>
-                    <div><span className="text-gray-600">Slag:</span> <span className="font-semibold">{suggestion.parameters.slag}kg</span></div>
-                    <div><span className="text-gray-600">Fly Ash:</span> <span className="font-semibold">{suggestion.parameters.fly_ash}kg</span></div>
-                    <div><span className="text-gray-600">Water:</span> <span className="font-semibold">{suggestion.parameters.water}kg</span></div>
-                    <div><span className="text-gray-600">Superplasticizer:</span> <span className="font-semibold">{suggestion.parameters.superplasticizer}kg</span></div>
-                    <div><span className="text-gray-600">Coarse:</span> <span className="font-semibold">{suggestion.parameters.coarse}kg</span></div>
-                    <div><span className="text-gray-600">Fine:</span> <span className="font-semibold">{suggestion.parameters.fine}kg</span></div>
-                    <div><span className="text-gray-600">Age:</span> <span className="font-semibold">{suggestion.parameters.age}d</span></div>
-                    <div className="col-span-2"><span className="text-gray-600">Curing:</span> <span className="font-semibold">{suggestion.parameters.curing_method}</span></div>
-                    <div><span className="text-gray-600">Chambers:</span> <span className="font-semibold">{suggestion.parameters.chambers}</span></div>
-                    <div><span className="text-gray-600">Moulds:</span> <span className="font-semibold">{suggestion.parameters.mould}</span></div>
+                  <h4 className="font-bold text-gray-900 mb-3">Per Unit vs Total (for {quantity} unit{quantity > 1 ? 's' : ''})</h4>
+                  <div className="grid grid-cols-3 gap-2 text-xs mb-2 pb-2 border-b">
+                    <div className="font-bold text-gray-700">Parameter</div>
+                    <div className="font-bold text-gray-700">Per Unit</div>
+                    <div className="font-bold text-gray-700">Total</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs space-y-1">
+                    <div className="text-gray-600">Cement</div>
+                    <div className="font-semibold">{suggestion.parameters.cement}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.cement * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Slag</div>
+                    <div className="font-semibold">{suggestion.parameters.slag}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.slag * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Fly Ash</div>
+                    <div className="font-semibold">{suggestion.parameters.fly_ash}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.fly_ash * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Water</div>
+                    <div className="font-semibold">{suggestion.parameters.water}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.water * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Superplasticizer</div>
+                    <div className="font-semibold">{suggestion.parameters.superplasticizer}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.superplasticizer * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Coarse</div>
+                    <div className="font-semibold">{suggestion.parameters.coarse}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.coarse * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600">Fine</div>
+                    <div className="font-semibold">{suggestion.parameters.fine}kg</div>
+                    <div className="font-semibold text-orange-600">{(suggestion.parameters.fine * quantity).toLocaleString()}kg</div>
+                    
+                    <div className="text-gray-600 font-bold">Curing Age</div>
+                    <div className="font-semibold col-span-2">{suggestion.parameters.age} days ({suggestion.parameters.curing_method})</div>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-2 text-xs">
+                    <div className="font-bold text-gray-700">Equipment</div>
+                    <div className="font-bold text-gray-700">Required</div>
+                    <div className="font-bold text-gray-700">Details</div>
+                    
+                    <div className="text-gray-600">Moulds</div>
+                    <div className="font-semibold text-blue-600">{moulds_required}</div>
+                    <div className="text-xs text-gray-600">Per casting cycle</div>
+                    
+                    <div className="text-gray-600">Chambers</div>
+                    <div className="font-semibold text-blue-600">{suggestion.parameters.chambers}</div>
+                    <div className="text-xs text-gray-600">For curing</div>
+                    
+                    <div className="text-gray-600">Cranes</div>
+                    <div className="font-semibold text-blue-600">{cranes_required}</div>
+                    <div className="text-xs text-gray-600">For handling</div>
                   </div>
                 </div>
 
@@ -970,21 +1025,44 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
             </div>
           </div>
 
-          {/* Action Panel */}
+          {/* Action Panel - Cost Breakdown */}
           <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 h-fit">
-            <h3 className="font-bold text-gray-900 mb-4">Next Steps</h3>
-            <div className="space-y-3 mb-6 text-sm text-gray-700">
-              <div className="flex gap-2">
-                <CheckCircle size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
-                <span>Assign chambers: {selectedSuggestion.parameters.chambers}</span>
+            <h3 className="font-bold text-gray-900 mb-4">Project Cost Breakdown</h3>
+            <div className="space-y-3 mb-6 text-sm">
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="text-gray-600">Strategy Cost (per unit):</span>
+                <span className="font-semibold text-gray-900">₹{Math.round(calculateScalableCost(8450, 1, 0.85)).toLocaleString()}</span>
               </div>
-              <div className="flex gap-2">
-                <CheckCircle size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
-                <span>Assign moulds: {selectedSuggestion.parameters.mould}</span>
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="text-gray-600">Total Strategy Cost ({quantity} units):</span>
+                <span className="font-semibold text-orange-600">₹{Math.round(calculateScalableCost(8450, quantity, 0.85)).toLocaleString()}</span>
               </div>
-              <div className="flex gap-2">
-                <Clock size={16} className="text-[#005EB8] flex-shrink-0 mt-0.5" />
-                <span>Estimated duration: {Math.round((new Date(scheduledEndTime).getTime() - new Date(scheduledStartTime).getTime()) / 3600000)}h</span>
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="text-gray-600">Transportation Cost:</span>
+                <span className="font-semibold text-orange-600">₹{Math.round(transportationCost).toLocaleString()}</span>
+              </div>
+              
+              <div className="bg-blue-50 rounded-lg p-3 my-4">
+                <div className="flex justify-between items-center font-bold text-lg">
+                  <span className="text-gray-900">Total Project Cost</span>
+                  <span className="text-[#005EB8]">₹{Math.round(calculateScalableCost(8450, quantity, 0.85) + transportationCost).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <h4 className="font-semibold text-gray-900 mt-4 mb-2">Resources Required:</h4>
+              <div className="space-y-2 text-xs">
+                <div className="flex gap-2">
+                  <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <span><span className="font-semibold">{moulds_required}</span> Moulds (casting cycle)</span>
+                </div>
+                <div className="flex gap-2">
+                  <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <span><span className="font-semibold">{selectedSuggestion.parameters.chambers}</span> Chambers (curing)</span>
+                </div>
+                <div className="flex gap-2">
+                  <Wrench size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <span><span className="font-semibold">{cranes_required}</span> Cranes (handling)</span>
+                </div>
               </div>
             </div>
 
