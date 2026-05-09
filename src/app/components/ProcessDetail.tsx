@@ -1,41 +1,55 @@
-import { useState } from "react";
-import { useParams } from "react-router";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from "recharts";
-import { Send, Zap, AlertTriangle, CheckCircle, ThermometerSun, Activity } from "lucide-react";
-
-const timelineData = [
-  { time: "0h", temp: 20, maturity: 0, strength: 0 },
-  { time: "2h", temp: 22, maturity: 44, strength: 1.2 },
-  { time: "4h", temp: 55, maturity: 154, strength: 4.8 },
-  { time: "6h", temp: 65, maturity: 404, strength: 10.2 },
-  { time: "6.5h", temp: 65, maturity: 437, strength: 12.8 },
-  { time: "8h", temp: 58, maturity: 530, strength: 14.2 },
-  { time: "10h", temp: 42, maturity: 630, strength: 15.1 },
-  { time: "12h", temp: 28, maturity: 710, strength: 15.6 },
-];
+import { Send, Zap, AlertTriangle, CheckCircle, ThermometerSun, Activity, ArrowLeft, Truck } from "lucide-react";
+import { getProcesses, ProcessRecord } from "@/lib/supabase";
 
 const chatHistory = [
   {
     role: "ai",
-    message: "Process #23 on track. Current optimization: safe to demould at 14:45 (15.1MPa predicted strength).",
+    message: "Process loaded. Current optimization: safe to demould at the scheduled time with target strength achieved.",
     timestamp: "13:42"
   },
   {
     role: "user",
-    message: "Can I speed up without risk?",
+    message: "What about transportation?",
     timestamp: "13:45"
   },
   {
     role: "ai",
-    message: "✅ YES: Reduce hold time by 30min → Demould at 14:15, still achieving 15.2MPa safely.\n\n⚠️ NO: Peak >75°C risks thermal cracking in current 85% RH environment.\n\nRecommendation: Reduce hold time as suggested for -9% energy with zero risk.",
+    message: "✅ Transportation route optimized. Factor applied: 1.2x\n\nCost impact: ₹2,400 added for logistics.\n\nRequired equipment:\n- Moulds: 2 units\n- Cranes: 1 unit\n\nRecommendation: Schedule pickup at off-peak hours to save 15% on crane rental.",
     timestamp: "13:45"
   },
 ];
 
 export function ProcessDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const [process, setProcess] = useState<ProcessRecord | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [chats, setChats] = useState(chatHistory);
+
+  useEffect(() => {
+    loadProcessDetail();
+  }, [id]);
+
+  const loadProcessDetail = async () => {
+    try {
+      setIsLoading(true);
+      const processes = await getProcesses();
+      const found = processes.find(p => p.id === id);
+      if (found) {
+        setProcess(found);
+      } else {
+        console.error("[v0] Process not found");
+      }
+    } catch (err) {
+      console.error("[v0] Error loading process:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSend = () => {
     if (!message.trim()) return;
@@ -57,51 +71,91 @@ export function ProcessDetail() {
     setMessage("");
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-8">
+        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-[#005EB8] font-semibold mb-6 hover:text-blue-700">
+          <ArrowLeft size={20} /> Back to Dashboard
+        </button>
+        <div className="text-center py-12">Loading process details...</div>
+      </div>
+    );
+  }
+
+  if (!process) {
+    return (
+      <div className="p-8">
+        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-[#005EB8] font-semibold mb-6 hover:text-blue-700">
+          <ArrowLeft size={20} /> Back to Dashboard
+        </button>
+        <div className="text-center py-12 text-gray-600">Process not found</div>
+      </div>
+    );
+  }
+
+  const timelineData = [
+    { time: "0h", temp: 20, maturity: 0, strength: 0 },
+    { time: "2h", temp: 22, maturity: 44, strength: 1.2 },
+    { time: "4h", temp: 55, maturity: 154, strength: 4.8 },
+    { time: "6h", temp: 65, maturity: 404, strength: 10.2 },
+    { time: "6.5h", temp: 65, maturity: 437, strength: 12.8 },
+    { time: "8h", temp: 58, maturity: 530, strength: 14.2 },
+    { time: "10h", temp: 42, maturity: 630, strength: 15.1 },
+    { time: "12h", temp: 28, maturity: 710, strength: 15.6 },
+  ];
+
+  const castingTimeHours = process.casting_time_minutes ? process.casting_time_minutes / 60 : 0.5;
+
   return (
     <div className="flex h-full">
       {/* Main Content - 70% */}
       <div className="flex-1 p-8 overflow-auto bg-gray-50">
+        {/* Back Button */}
+        <button onClick={() => navigate('/')} className="flex items-center gap-2 text-[#005EB8] font-semibold mb-6 hover:text-blue-700">
+          <ArrowLeft size={20} /> Back to Dashboard
+        </button>
+
         {/* Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-3xl font-bold text-gray-900">Process #{id}: Metro Pier Cap</h1>
+            <h1 className="text-3xl font-bold text-gray-900">{process.material_name}</h1>
             <div className="flex items-center gap-2 bg-green-100 text-green-800 px-4 py-2 rounded-lg">
               <CheckCircle size={20} />
-              <span className="font-semibold">On Track - Safe</span>
+              <span className="font-semibold">On Track</span>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm text-gray-600">
-            <span>M50 Grade</span>
+            <span>Qty: {process.quantity}</span>
             <span>•</span>
-            <span>Mould #12</span>
+            <span>Mould #{process.mould}</span>
             <span>•</span>
-            <span>Chamber #4</span>
+            <span>Chamber #{process.chambers}</span>
             <span>•</span>
-            <span>Crane #2</span>
+            <span>{process.strategy_type.toUpperCase()} Strategy</span>
           </div>
         </div>
 
         {/* KPI Cards */}
         <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Current Strength</div>
-            <div className="text-2xl font-bold text-gray-900">13.2 MPa</div>
-            <div className="text-xs text-green-600 mt-1">Target: 15.0 MPa</div>
+            <div className="text-sm text-gray-600 mb-1">Process Maturity</div>
+            <div className="text-2xl font-bold text-gray-900">{process.current_maturity || 437}°C·h</div>
+            <div className="text-xs text-blue-600 mt-1">Current progress</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Energy Used</div>
-            <div className="text-2xl font-bold text-gray-900">42 kWh</div>
-            <div className="text-xs text-blue-600 mt-1">-9% vs baseline</div>
+            <div className="text-sm text-gray-600 mb-1">Temperature</div>
+            <div className="text-2xl font-bold text-gray-900">{process.current_temperature || 65}°C</div>
+            <div className="text-xs text-gray-600 mt-1">Current reading</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">CO₂ Footprint</div>
-            <div className="text-2xl font-bold text-gray-900">26 kg</div>
-            <div className="text-xs text-green-600 mt-1">-12% vs baseline</div>
+            <div className="text-sm text-gray-600 mb-1">Casting Time</div>
+            <div className="text-2xl font-bold text-gray-900">{castingTimeHours.toFixed(1)}h</div>
+            <div className="text-xs text-gray-600 mt-1">Duration</div>
           </div>
           <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Demould ETA</div>
-            <div className="text-2xl font-bold text-gray-900">14:45</div>
-            <div className="text-xs text-gray-600 mt-1">In 1h 13m</div>
+            <div className="text-sm text-gray-600 mb-1">Target Strength</div>
+            <div className="text-2xl font-bold text-gray-900">{process.target_strength || 15}MPa</div>
+            <div className="text-xs text-green-600 mt-1">Goal</div>
           </div>
         </div>
 
@@ -111,10 +165,10 @@ export function ProcessDetail() {
           <div className="flex gap-2 mb-6">
             {[
               { stage: "Prep", time: "1.2h", status: "complete" },
-              { stage: "Cast", time: "0.8h", status: "complete" },
+              { stage: "Cast", time: `${castingTimeHours.toFixed(1)}h`, status: "active" },
               { stage: "Cure", time: "6h32m", status: "active" },
               { stage: "Demould", time: "0.5h", status: "pending" },
-              { stage: "Reset", time: "0.3h", status: "pending" },
+              { stage: "Transport", time: "1h", status: "pending" },
             ].map((stage, idx) => (
               <div key={idx} className="flex-1">
                 <div className={`rounded-lg p-3 text-center ${
@@ -151,7 +205,7 @@ export function ProcessDetail() {
         </div>
 
         {/* Maturity Chart */}
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 mb-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
             <Activity className="text-green-600" />
             Maturity Index Progress
@@ -167,16 +221,86 @@ export function ProcessDetail() {
           </ResponsiveContainer>
         </div>
 
-        {/* Current AI Optimization */}
-        <div className="bg-gradient-to-r from-[#005EB8] to-blue-600 rounded-xl p-6 mt-6 text-white shadow-lg">
-          <div className="flex items-start gap-4">
-            <Zap size={32} className="text-[#FDB813]" />
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Active AI Optimization</h3>
-              <p className="text-blue-100">
-                Reduce hold time by 45 minutes to save <strong className="text-[#FDB813]">12% energy</strong> while maintaining safe strength target. 
-                Demould time moved from 15:30 to 14:45 with zero risk.
-              </p>
+        {/* Transportation & Equipment Details */}
+        {process.transportation_location && (
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl p-6 text-white shadow-lg mb-6">
+            <div className="flex items-start gap-4">
+              <Truck size={32} className="text-white flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold mb-2">Transportation Details</h3>
+                <div className="grid grid-cols-3 gap-4 bg-white/20 rounded-lg p-4 mt-2">
+                  <div>
+                    <p className="text-orange-100 text-sm">Location</p>
+                    <p className="text-white font-semibold">{process.transportation_location}</p>
+                  </div>
+                  <div>
+                    <p className="text-orange-100 text-sm">Transportation Factor</p>
+                    <p className="text-white font-semibold">{process.transportation_factor || 0}x</p>
+                  </div>
+                  <div>
+                    <p className="text-orange-100 text-sm">Transportation Cost</p>
+                    <p className="text-white font-semibold">₹{process.transportation_cost || 0}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Equipment Requirements */}
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 mb-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Equipment Requirements</h2>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Moulds Needed</p>
+              <p className="text-3xl font-bold text-[#005EB8]">{process.moulds_required || process.mould}</p>
+            </div>
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Cranes Needed</p>
+              <p className="text-3xl font-bold text-purple-600">{process.cranes_required || 1}</p>
+            </div>
+            <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Chambers Required</p>
+              <p className="text-3xl font-bold text-green-600">{process.chambers}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Mix Composition */}
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">Mix Composition</h2>
+          <div className="grid grid-cols-4 gap-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Cement</p>
+              <p className="text-2xl font-bold text-gray-900">{process.cement}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Slag</p>
+              <p className="text-2xl font-bold text-gray-900">{process.slag}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Fly Ash</p>
+              <p className="text-2xl font-bold text-gray-900">{process.fly_ash}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Water</p>
+              <p className="text-2xl font-bold text-gray-900">{process.water}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Superplasticizer</p>
+              <p className="text-2xl font-bold text-gray-900">{process.superplasticizer}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Coarse Agg.</p>
+              <p className="text-2xl font-bold text-gray-900">{process.coarse}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Fine Agg.</p>
+              <p className="text-2xl font-bold text-gray-900">{process.fine}kg</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600 mb-1">Curing Method</p>
+              <p className="text-lg font-bold text-gray-900 capitalize">{process.curing_method}</p>
             </div>
           </div>
         </div>
@@ -188,7 +312,7 @@ export function ProcessDetail() {
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             🤖 Live AI Assistant
           </h2>
-          <p className="text-sm text-gray-600 mt-1">Ask anything about this process</p>
+          <p className="text-sm text-gray-600 mt-1">Ask about this process</p>
         </div>
 
         {/* Chat History */}

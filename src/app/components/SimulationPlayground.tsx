@@ -7,16 +7,30 @@ export function SimulationPlayground() {
   const [accelerator, setAccelerator] = useState(true);
   const [automationLevel, setAutomationLevel] = useState(70);
   const [holdTime, setHoldTime] = useState(4);
+  const [transportDistance, setTransportDistance] = useState(25);
+  const [quantity, setQuantity] = useState(100);
 
-  // Calculate impacts based on parameters
+  // Base values for comparison
   const baseCost = 10000;
   const baseTime = 12;
   const baseCO2 = 30;
   const baseStrength = 15;
+  const baseTransportCost = 5000;
+  const baseCement = 380;
 
-  const cost = Math.round(baseCost + (curingTemp - 65) * 100 + (accelerator ? 500 : 0) + (automationLevel * 20));
+  // Material costs
+  const cementCost = 6; // per kg
+  const transportCostPerKm = 200; // per km
+  const transportMultiplier = 1; + (transportDistance / 100);
+  
+  // Calculate impacts based on parameters
+  const mixCost = (baseCement * quantity * cementCost) / 1000;
+  const transportCost = Math.round(baseTransportCost * transportMultiplier * (quantity / 100));
+  const mixProductionCost = Math.round(baseCost + (curingTemp - 65) * 100 + (accelerator ? 500 : 0) + (automationLevel * 20));
+  const totalCost = Math.round(mixProductionCost + transportCost + mixCost);
+  
   const cycleTime = (baseTime - (curingTemp - 65) * 0.15 - (accelerator ? 1.5 : 0) + (holdTime - 4) * 0.5).toFixed(1);
-  const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100);
+  const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100 + (transportDistance * 0.1));
   const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3).toFixed(1);
   const energyUsage = Math.round(100 + (curingTemp - 65) * 5 + (holdTime - 4) * 8);
 
@@ -123,6 +137,49 @@ export function SimulationPlayground() {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Transportation Distance: {transportDistance} km
+                </label>
+                <input
+                  type="range"
+                  min="5"
+                  max="200"
+                  value={transportDistance}
+                  onChange={(e) => setTransportDistance(Number(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>5 km (Local)</span>
+                  <span>200 km (Long)</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
+                  Transport cost = ₹{transportCost.toLocaleString()} (distance + quantity dependent)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Order Quantity: {quantity} units
+                </label>
+                <input
+                  type="range"
+                  min="10"
+                  max="1000"
+                  step="10"
+                  value={quantity}
+                  onChange={(e) => setQuantity(Number(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>10 units</span>
+                  <span>1000 units</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
+                  Larger orders benefit from economies of scale in material & transport costs
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Automation Level: {automationLevel}%
                 </label>
                 <input
@@ -186,14 +243,22 @@ export function SimulationPlayground() {
               <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-5 border-2 border-green-300">
                 <div className="flex items-center gap-2 mb-2">
                   <DollarSign className="text-green-700" size={24} />
-                  <span className="text-sm font-semibold text-gray-700">Cost</span>
+                  <span className="text-sm font-semibold text-gray-700">Total Project Cost</span>
                 </div>
-                <div className="text-3xl font-bold text-gray-900">₹{cost.toLocaleString()}</div>
-                <div className={`text-sm font-semibold mt-1 flex items-center gap-1 ${
-                  getCostChange() < 0 ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {getCostChange() < 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
-                  {Math.abs(getCostChange()).toFixed(1)}% vs baseline
+                <div className="text-3xl font-bold text-gray-900">₹{totalCost.toLocaleString()}</div>
+                <div className="text-xs text-gray-600 mt-2 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Mix & Production:</span>
+                    <span className="font-semibold">₹{mixProductionCost.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Transport ({transportDistance}km):</span>
+                    <span className="font-semibold">₹{transportCost.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Cement ({quantity} units):</span>
+                    <span className="font-semibold">₹{Math.round(mixCost).toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
 
@@ -207,7 +272,10 @@ export function SimulationPlayground() {
                   getTimeChange() < 0 ? 'text-green-700' : 'text-red-700'
                 }`}>
                   {getTimeChange() < 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
-                  {Math.abs(getTimeChange()).toFixed(1)}% vs baseline
+                  {Math.abs(getTimeChange()).toFixed(1)}% vs baseline ({baseTime}h)
+                </div>
+                <div className="text-xs text-gray-600 mt-2">
+                  {getTimeChange() < 0 ? `Time Saved: ${(baseTime - parseFloat(cycleTime)).toFixed(1)}h` : `Time Added: ${(parseFloat(cycleTime) - baseTime).toFixed(1)}h`}
                 </div>
               </div>
 
@@ -277,6 +345,14 @@ export function SimulationPlayground() {
               <div className="flex justify-between py-2 border-b">
                 <span className="text-gray-600">Automation Level</span>
                 <span className="font-semibold text-gray-900">{automationLevel}%</span>
+              </div>
+              <div className="flex justify-between py-2 border-b">
+                <span className="text-gray-600">Transport Distance</span>
+                <span className="font-semibold text-gray-900">{transportDistance} km</span>
+              </div>
+              <div className="flex justify-between py-2 border-b">
+                <span className="text-gray-600">Order Quantity</span>
+                <span className="font-semibold text-gray-900">{quantity} units</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-gray-600">Chemical Accelerator</span>

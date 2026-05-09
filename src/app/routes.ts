@@ -9,8 +9,10 @@ import { SimulationResults } from "./components/SimulationResults";
 import { SimulationPlayground } from "./components/SimulationPlayground";
 import { ProductionPlanning } from "./components/ProductionPlanning";
 import { Reports } from "./components/Reports";
+import { Login } from "./components/Login";
 
 export const router = createBrowserRouter([
+  { path: "/login", Component: Login },
   {
     path: "/",
     Component: Layout,
