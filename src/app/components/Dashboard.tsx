@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Activity, Zap, Leaf, Clock, AlertTriangle, CheckCircle, Clock3, Sparkles, Sliders, Calendar } from "lucide-react";
+import { Activity, Zap, Leaf, Clock, AlertTriangle, CheckCircle, Sliders, Calendar, RefreshCw } from "lucide-react";
+import { getProcesses, ProcessRecord } from "@/lib/supabase";
 
 const kpis = [
   {
@@ -29,7 +31,7 @@ const kpis = [
   },
 ];
 
-const processes = [
+const demoProcesses = [
   {
     id: "23",
     name: "Metro Pier Cap",
@@ -76,54 +78,6 @@ const processes = [
     status: "warning",
     color: "bg-orange-50 border-orange-200",
   },
-  {
-    id: "26",
-    name: "Box Girder",
-    grade: "M50",
-    stage: "Curing",
-    mould: "7",
-    chamber: "2",
-    crane: "1",
-    castTime: "07:30",
-    currentTime: "8h15m",
-    demouldETA: "16:00",
-    strength: { current: 14.2, target: 15 },
-    energy: "52kWh",
-    co2: "32kg",
-    aiSuggestion: "On track - maintain current profile",
-    status: "safe",
-    color: "bg-blue-50 border-blue-200",
-  },
-  {
-    id: "27",
-    name: "Slab Panel",
-    grade: "M40",
-    stage: "Demould",
-    mould: "15",
-    crane: "4",
-    castTime: "Yesterday 14:20",
-    strength: { current: 16.8, target: 15 },
-    energy: "38kWh",
-    co2: "24kg",
-    aiSuggestion: "Ready for demould - strength achieved",
-    status: "safe",
-    color: "bg-teal-50 border-teal-200",
-  },
-  {
-    id: "28",
-    name: "T-Beam",
-    grade: "M55",
-    stage: "Casting",
-    mould: "9",
-    location: "Bay 2",
-    crew: "B",
-    progress: 67,
-    finishETA: "13:15",
-    mix: "380kg cement, 15% flyash",
-    aiSuggestion: "Weather alert: Rain at 14:00, expedite curing prep",
-    status: "warning",
-    color: "bg-yellow-50 border-yellow-200",
-  },
 ];
 
 const resourceTimeline = [
@@ -133,6 +87,52 @@ const resourceTimeline = [
 ];
 
 export function Dashboard() {
+  const [processes, setProcesses] = useState<ProcessRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadProcesses();
+  }, []);
+
+  const loadProcesses = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await getProcesses();
+      console.log("[v0] Loaded processes from Supabase:", data);
+      setProcesses(data);
+    } catch (err) {
+      console.error("[v0] Error loading processes:", err);
+      setError("Failed to load processes");
+      // Fallback to empty array if Supabase fails
+      setProcesses([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Combine demo processes with real processes for display
+  // If we have real processes, show them; otherwise show demo data
+  const displayProcesses = processes.length > 0 ? processes.map(p => ({
+    id: p.id,
+    name: p.material_name,
+    dimensions: p.material_dimensions,
+    quantity: p.quantity,
+    grade: p.strategy_type,
+    stage: p.status === 'scheduled' ? 'Scheduled' : p.status === 'in_progress' ? 'Running' : p.status === 'completed' ? 'Completed' : 'Cancelled',
+    mould: p.mould.toString(),
+    chamber: p.chambers.toString(),
+    castTime: new Date(p.scheduled_start_time).toLocaleTimeString(),
+    demouldETA: new Date(p.scheduled_end_time).toLocaleTimeString(),
+    strength: { current: p.age || 0, target: p.age || 28 },
+    energy: `${Math.round(p.cement * 0.5)}kWh`,
+    co2: `${Math.round(p.cement * 0.1)}kg`,
+    aiSuggestion: `Curing method: ${p.curing_method} at ${p.age} days`,
+    status: p.status === 'scheduled' ? 'info' : p.status === 'in_progress' ? 'safe' : 'completed',
+    color: p.status === 'scheduled' ? 'bg-blue-50 border-blue-200' : p.status === 'in_progress' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200',
+  })) : demoProcesses;
+
   return (
     <div className="p-8 max-w-[1440px] mx-auto">
       {/* Header */}
@@ -142,6 +142,14 @@ export function Dashboard() {
           <p className="text-gray-600 mt-2">Real-time yard status and AI insights</p>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={loadProcesses}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-5 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+            Refresh
+          </button>
           <Link
             to="/simulation-playground"
             className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors"
@@ -149,38 +157,36 @@ export function Dashboard() {
             <Sliders size={18} />
             Simulation Lab
           </Link>
-          <Link
-            to="/production-planning"
-            className="flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
-          >
-            <Calendar size={18} />
-            Production Plan
-          </Link>
         </div>
       </div>
 
-      {/* Hero Section - KPIs */}
-      <div className="grid grid-cols-4 gap-6 mb-6">
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-300 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="text-red-600 mt-0.5 flex-shrink-0" size={20} />
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {/* KPIs */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
           return (
-            <div key={idx} className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-gray-600">{kpi.label}</span>
-                <Icon className={kpi.color} size={24} />
+            <div key={idx} className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-700">{kpi.label}</h3>
+                <Icon className={`${kpi.color}`} size={20} />
               </div>
-              {kpi.values ? (
+              {Array.isArray(kpi.values) ? (
                 <div className="space-y-1">
                   {kpi.values.map((v, i) => (
-                    <div key={i} className="text-sm font-semibold text-gray-800">
-                      {v}
-                    </div>
+                    <div key={i} className="text-sm font-bold text-gray-900">{v}</div>
                   ))}
                 </div>
               ) : (
                 <>
                   <div className="text-2xl font-bold text-gray-900">{kpi.value}</div>
-                  {kpi.target && <div className="text-xs text-gray-500 mt-1">{kpi.target}</div>}
+                  <div className="text-xs text-gray-600 mt-1">{kpi.target}</div>
                 </>
               )}
             </div>
@@ -188,193 +194,147 @@ export function Dashboard() {
         })}
       </div>
 
-      {/* AI Optimization Tip */}
-      <div className="bg-gradient-to-r from-[#005EB8] to-blue-600 rounded-xl p-6 mb-6 text-white shadow-lg">
-        <div className="flex items-start gap-4">
-          <div className="bg-[#FDB813] rounded-full p-3">
-            <Zap size={24} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold mb-2">⚡ Today's AI Optimization Tip</h3>
-            <p className="text-blue-50">
-              Chamber 4 running 2h overtime on pier segments. Switch to 65°C/4h profile to save{" "}
-              <span className="font-bold text-[#FDB813]">18% energy</span> while meeting 15MPa target
-            </p>
-          </div>
-          <Link
-            to="/process/23"
-            className="bg-white text-[#005EB8] px-4 py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
-          >
-            View Details
-          </Link>
-        </div>
-      </div>
+      {/* Live Production Processes */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          <Activity className="inline mr-2 text-[#005EB8]" size={28} />
+          Live Production Processes ({displayProcesses.length})
+        </h2>
 
-      {/* Main Process Cards Grid */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Live Production Processes</h2>
-          <Link
-            to="/add-process"
-            className="bg-[#005EB8] text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-          >
-            + Start New Process
-          </Link>
-        </div>
+        {isLoading && (
+          <div className="text-center py-8 text-gray-600">Loading processes...</div>
+        )}
 
-        <div className="grid grid-cols-3 gap-4">
-          {processes.map((process) => (
+        {!isLoading && displayProcesses.length === 0 && (
+          <div className="bg-gray-50 rounded-lg p-8 text-center border border-gray-300">
+            <p className="text-gray-600 mb-4">No processes yet. Add your first process to get started!</p>
             <Link
-              key={process.id}
-              to={`/process/${process.id}`}
-              className={`${process.color} border-2 rounded-xl p-5 hover:shadow-lg transition-all`}
+              to="/add-process"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#005EB8] text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
             >
-              {/* Header */}
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-bold text-gray-900">
-                    Process #{process.id}: {process.name}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs font-semibold text-gray-700">{process.grade}</span>
-                    <span className="text-xs text-gray-500">•</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      process.stage === 'Curing' ? 'bg-blue-200 text-blue-800' :
-                      process.stage === 'Casting' ? 'bg-green-200 text-green-800' :
-                      process.stage === 'Prep' ? 'bg-orange-200 text-orange-800' :
-                      'bg-teal-200 text-teal-800'
+              <Calendar size={18} />
+              Add Process
+            </Link>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {displayProcesses.map((process: any) => (
+            <div
+              key={process.id}
+              className={`${process.color} border rounded-xl p-6 hover:shadow-lg transition-all`}
+            >
+              <div className="grid grid-cols-5 gap-6">
+                {/* Process Info */}
+                <div className="col-span-2">
+                  <h3 className="text-lg font-bold text-gray-900">{process.name}</h3>
+                  {process.dimensions && (
+                    <p className="text-sm text-gray-600 mt-1">📏 {process.dimensions}</p>
+                  )}
+                  {process.quantity && (
+                    <p className="text-sm text-gray-600">📦 Qty: {process.quantity} units</p>
+                  )}
+                  <div className="flex gap-2 mt-3">
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      process.status === 'safe' ? 'bg-green-200 text-green-800' :
+                      process.status === 'warning' ? 'bg-orange-200 text-orange-800' :
+                      process.status === 'info' ? 'bg-blue-200 text-blue-800' :
+                      'bg-gray-200 text-gray-800'
                     }`}>
                       {process.stage}
                     </span>
+                    {process.grade && (
+                      <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-300 text-gray-900">
+                        {process.grade}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                  process.status === 'safe' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
-                }`}>
-                  {process.status === 'safe' ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+
+                {/* Resources */}
+                <div className="col-span-1">
+                  <h4 className="text-xs font-bold text-gray-600 uppercase mb-2">Resources</h4>
+                  <div className="space-y-1 text-sm">
+                    <div><span className="text-gray-600">Mould:</span> <span className="font-semibold">{process.mould}</span></div>
+                    <div><span className="text-gray-600">Chamber:</span> <span className="font-semibold">{process.chamber}</span></div>
+                    {process.crane && (
+                      <div><span className="text-gray-600">Crane:</span> <span className="font-semibold">{process.crane}</span></div>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Stage-specific content */}
-              <div className="space-y-2 text-sm text-gray-700 mb-3">
-                {process.stage === 'Curing' && (
-                  <>
-                    <div className="flex justify-between">
-                      <span>Mould #{process.mould} | Chamber #{process.chamber} | Crane #{process.crane}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Cast: {process.castTime}</span>
-                      <span className="font-semibold">Curing: {process.currentTime}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Demould ETA: {process.demouldETA}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Strength: {process.strength.current}/{process.strength.target}MPa ✓</span>
-                    </div>
-                    <div className="flex gap-4">
-                      <span>Energy: {process.energy}</span>
-                      <span>CO₂: {process.co2}</span>
-                    </div>
-                  </>
-                )}
-                
-                {process.stage === 'Casting' && (
-                  <>
-                    <div>Mould #{process.mould} | {process.location} | Crew {process.crew}</div>
-                    <div className="flex items-center gap-2">
-                      <span>Progress:</span>
-                      <div className="flex-1 bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-[#005EB8] h-2 rounded-full"
-                          style={{ width: `${process.progress}%` }}
-                        />
-                      </div>
-                      <span className="font-semibold">{process.progress}%</span>
-                    </div>
-                    <div>Finish ETA: {process.finishETA}</div>
-                    <div className="text-xs">Mix: {process.mix}</div>
-                  </>
-                )}
+                {/* Timeline */}
+                <div className="col-span-1">
+                  <h4 className="text-xs font-bold text-gray-600 uppercase mb-2">Timeline</h4>
+                  <div className="space-y-1 text-sm">
+                    <div><span className="text-gray-600">Start:</span> <span className="font-semibold">{process.castTime}</span></div>
+                    <div><span className="text-gray-600">End:</span> <span className="font-semibold">{process.demouldETA}</span></div>
+                  </div>
+                </div>
 
-                {process.stage === 'Prep' && (
-                  <>
-                    <div>Mould #{process.mould} | {process.substage}</div>
-                    <div className="flex justify-between">
-                      <span>Complexity: {process.complexity}</span>
-                      <span>Crew: {process.crew}</span>
-                    </div>
-                  </>
-                )}
-
-                {process.stage === 'Demould' && (
-                  <>
-                    <div>Mould #{process.mould} | Crane #{process.crane}</div>
-                    <div>Cast: {process.castTime}</div>
-                    <div>Strength: {process.strength.current}/{process.strength.target}MPa ✓</div>
-                    <div className="flex gap-4">
-                      <span>Energy: {process.energy}</span>
-                      <span>CO₂: {process.co2}</span>
-                    </div>
-                  </>
-                )}
+                {/* Impact */}
+                <div className="col-span-1">
+                  <h4 className="text-xs font-bold text-gray-600 uppercase mb-2">Impact</h4>
+                  <div className="space-y-1 text-sm">
+                    <div><Zap className="inline text-yellow-600 mr-1" size={14} /> {process.energy}</div>
+                    <div><Leaf className="inline text-green-600 mr-1" size={14} /> {process.co2}</div>
+                  </div>
+                </div>
               </div>
 
               {/* AI Suggestion */}
-              <div className="bg-white/80 rounded-lg p-3 mt-3 border border-gray-200">
-                <div className="flex items-start gap-2">
-                  <Zap size={14} className="text-[#FDB813] mt-0.5 flex-shrink-0" />
-                  <span className="text-xs text-gray-800 font-medium">{process.aiSuggestion}</span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Resource Timeline */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">24h Resource Timeline</h3>
-        <div className="space-y-4">
-          {resourceTimeline.map((resource) => (
-            <div key={resource.resource}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-gray-700">
-                  {resource.resource} Utilization
-                </span>
-                <span className="text-sm text-gray-600">
-                  {resource.used}/{resource.total} in use
-                </span>
-              </div>
-              <div className="flex gap-1">
-                {Array.from({ length: resource.total }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`flex-1 h-8 rounded ${
-                      i < resource.used
-                        ? resource.critical.includes(i + 1)
-                          ? "bg-red-400"
-                          : "bg-[#005EB8]"
-                        : "bg-gray-200"
-                    }`}
-                  />
-                ))}
-              </div>
-              {resource.critical.length > 0 && (
-                <div className="text-xs text-red-600 mt-1">
-                  ⚠️ High utilization: {resource.resource} #{resource.critical.join(", #")}
+              {process.aiSuggestion && (
+                <div className="mt-4 p-3 bg-white/60 rounded-lg border-l-4 border-[#005EB8]">
+                  <p className="text-sm text-gray-700"><Sparkles className="inline mr-2 text-[#005EB8]" size={16} />{process.aiSuggestion}</p>
                 </div>
               )}
             </div>
           ))}
         </div>
-        <Link
-          to="/yard-resources"
-          className="block mt-4 text-center text-[#005EB8] font-semibold hover:underline"
-        >
-          View Detailed Resource Schedule →
-        </Link>
+      </div>
+
+      {/* Resource Timeline */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Resource Utilization</h2>
+        <div className="grid grid-cols-3 gap-6">
+          {resourceTimeline.map((res, idx) => (
+            <div key={idx} className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">{res.resource}</h3>
+                <span className="text-2xl font-bold text-[#005EB8]">{res.used}/{res.total}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+                <div
+                  className="bg-[#005EB8] h-2 rounded-full"
+                  style={{ width: `${(res.used / res.total) * 100}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-600">{Math.round((res.used / res.total) * 100)}% utilized</p>
+              {res.critical.length > 0 && (
+                <div className="mt-3 p-2 bg-orange-50 rounded border border-orange-200">
+                  <p className="text-xs font-semibold text-orange-800">Critical: #{res.critical.join(", #")}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
+
+// Icon component import needed
+const Sparkles = (props: any) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M9.26 9a2 2 0 0 0-1.35 3.74h0A2 2 0 0 0 9 16.74"></path>
+    <path d="M16.74 9.5a2.5 2.5 0 0 0-3.49 3.49"></path>
+    <path d="M12 2v4"></path>
+    <path d="M20.485 3.515l-2.828 2.828"></path>
+    <path d="M21.998 12h-4"></path>
+    <path d="M3.515 20.485l2.828-2.828"></path>
+    <path d="M2 12h4"></path>
+    <path d="M3.515 3.515l2.828 2.828"></path>
+    <path d="M12 20.998v-4"></path>
+    <path d="M20.485 20.485l-2.828-2.828"></path>
+  </svg>
+);
