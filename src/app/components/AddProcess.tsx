@@ -117,14 +117,14 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         superplasticizer: 4.5,
         coarse: 900.0,
         fine: 650.0,
-        age: 28,
+        age: 12,
         curing_method: "ambient",
         chambers: 2,
-        mould: 3,
+        mould: 1,
       },
       details: [
-        "Peak 65°C × 4h",
-        "Tcure 12h",
+        "Curing: 12 hours",
+        "Ambient temperature",
         "Energy -18%",
         "CO₂ -14kg"
       ],
@@ -147,18 +147,18 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         superplasticizer: 6.0,
         coarse: 920.0,
         fine: 670.0,
-        age: 7,
+        age: 10,
         curing_method: "steam",
         chambers: 3,
-        mould: 2,
+        mould: 1,
       },
       details: [
-        "Peak 72°C × 3.5h",
+        "Curing: 10 hours",
+        "Steam accelerated",
         "Energy +12%",
-        "CO₂ +8kg",
-        "✅ Safe"
+        "CO₂ +8kg"
       ],
-      note: "Optimal for hot weather, meets 15MPa in 10h20m"
+      note: "Fastest option, 2h time savings vs cheapest"
     },
     {
       type: "greenest",
@@ -177,18 +177,18 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         superplasticizer: 3.5,
         coarse: 880.0,
         fine: 630.0,
-        age: 28,
+        age: 15,
         curing_method: "ambient",
         chambers: 1,
-        mould: 2,
+        mould: 1,
       },
       details: [
-        "Ambient + low steam",
-        "Tcure 15h",
+        "Curing: 15 hours",
+        "Natural ambient",
         "Energy -32%",
         "Max sustainability"
       ],
-      note: "Best for sustainability targets"
+      note: "Eco-friendly, 3h slower than fastest"
     }
   ];
 
@@ -236,18 +236,21 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
     const scaledCheapestCost = calculateScalableCost(baseCheapestCost, quantity, 0.85);
     const scaledTransportCost = calculateTransportationCost(baseTransportCost, quantity, transportationDistanceKm, transportationType);
     
-    // Calculate moulds needed based on casting time and total available duration
+    // Calculate moulds needed: total_time_needed / time_per_mould = moulds_needed
+    // Each mould takes castingTimeMinutes, and we have totalDurationMinutes available
     const totalDurationMinutes = scheduledStartTime && scheduledEndTime 
       ? Math.round((new Date(scheduledEndTime).getTime() - new Date(scheduledStartTime).getTime()) / 60000)
       : 480; // default 8 hours
     const totalCastingTimeNeeded = castingTimeMinutes * quantity;
     const mouldsNeeded = Math.ceil(totalCastingTimeNeeded / totalDurationMinutes) || 1;
     
-    const scaledCranes = calculateScalableResources(1, quantity);
+    // Cranes needed: realistic calculation
+    // For 1000 units/day → ~5 cranes; proportional scaling
+    const cranesNeeded = Math.max(1, Math.ceil(quantity / 200));
 
-    // Update moulds and cranes based on time constraints
-    setMouldsRequired(Math.max(mouldsNeeded, calculateScalableResources(3, quantity)));
-    setCranesRequired(scaledCranes);
+    // Update moulds and cranes based on calculations
+    setMouldsRequired(mouldsNeeded);
+    setCranesRequired(cranesNeeded);
     setTransportationCost(scaledTransportCost);
 
     setTimeout(() => {
@@ -959,35 +962,16 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
                     />
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-600 mb-1">Transport Factor</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={transportationFactor}
-                        onChange={(e) => setTransportationFactor(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Transport Cost (₹)</label>
+                      <label className="block text-xs text-gray-600 mb-1">Transport Cost (₹) - Auto Calculated</label>
                       <input
                         type="number"
                         value={transportationCost}
-                        onChange={(e) => setTransportationCost(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 bg-gray-100 rounded-lg text-gray-600"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-600 mb-1">Moulds Needed</label>
-                      <input
-                        type="number"
-                        value={moulds_required}
-                        onChange={(e) => setMouldsRequired(Number(e.target.value))}
-                        min="1"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
-                      />
+                      <p className="text-xs text-gray-500 mt-1">Auto-calculated based on distance & type</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
