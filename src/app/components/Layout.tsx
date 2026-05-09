@@ -1,15 +1,10 @@
 import { Outlet, Link, useLocation } from "react-router";
-import { LayoutDashboard, Settings, DollarSign, FileText, Layers, Search, Bell, User, PlusCircle, Sparkles, Sliders, Calendar } from "lucide-react";
+import { LayoutDashboard, Search, Bell, User, PlusCircle, Sliders } from "lucide-react";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/add-process", label: "Add Process", icon: PlusCircle },
   { path: "/simulation-playground", label: "Simulation Playground", icon: Sliders },
-  { path: "/production-planning", label: "Production Planning", icon: Calendar },
-  { path: "/cost-efficiency", label: "Cost Efficiency", icon: DollarSign },
-  { path: "/yard-resources", label: "Yard Resources", icon: Layers },
-  { path: "/reports", label: "Reports", icon: FileText },
-  { path: "/settings", label: "Settings", icon: Settings }
 ];
 
 export function Layout() {

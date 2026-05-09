@@ -50,6 +50,12 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
   const [scheduledEndTime, setScheduledEndTime] = useState("");
   const [sustainabilityPriority, setSustainabilityPriority] = useState(50);
   const [desiredStrength, setDesiredStrength] = useState(15);
+  const [transportationLocation, setTransportationLocation] = useState("");
+  const [transportationFactor, setTransportationFactor] = useState(1);
+  const [transportationCost, setTransportationCost] = useState(0);
+  const [moulds_required, setMouldsRequired] = useState(1);
+  const [cranes_required, setCranesRequired] = useState(1);
+  const [castingTimeMinutes, setCastingTimeMinutes] = useState(30);
 
   const suggestions: ProcessSuggestion[] = [
     {
@@ -233,6 +239,12 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         chambers: selectedSuggestion.parameters.chambers,
         mould: selectedSuggestion.parameters.mould,
         status: "scheduled",
+        transportation_location: transportationLocation || null,
+        transportation_factor: transportationFactor || null,
+        transportation_cost: transportationCost || null,
+        moulds_required,
+        cranes_required,
+        casting_time_minutes: castingTimeMinutes,
       });
 
       console.log("[v0] Process added successfully:", newProcess);
@@ -668,6 +680,76 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
                       </span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Transportation Details */}
+              <div className="bg-orange-50 border border-orange-300 rounded-lg p-4">
+                <h3 className="font-bold text-gray-900 mb-3">Transportation & Equipment</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Location</label>
+                    <input
+                      type="text"
+                      value={transportationLocation}
+                      onChange={(e) => setTransportationLocation(e.target.value)}
+                      placeholder="e.g., Mumbai, Delhi"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Transport Factor</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={transportationFactor}
+                        onChange={(e) => setTransportationFactor(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Transport Cost (₹)</label>
+                      <input
+                        type="number"
+                        value={transportationCost}
+                        onChange={(e) => setTransportationCost(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Moulds Needed</label>
+                      <input
+                        type="number"
+                        value={moulds_required}
+                        onChange={(e) => setMouldsRequired(Number(e.target.value))}
+                        min="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Cranes Needed</label>
+                      <input
+                        type="number"
+                        value={cranes_required}
+                        onChange={(e) => setCranesRequired(Number(e.target.value))}
+                        min="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Casting Time (min)</label>
+                      <input
+                        type="number"
+                        value={castingTimeMinutes}
+                        onChange={(e) => setCastingTimeMinutes(Number(e.target.value))}
+                        min="1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
