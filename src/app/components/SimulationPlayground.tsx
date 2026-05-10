@@ -15,27 +15,42 @@ export function SimulationPlayground() {
   const baseTime = 12;
   const baseCO2 = 30;
   const baseStrength = 15;
-  const baseTransportCost = 5000;
+  const baseTransportCost = 3000; // Base transport at 0 km
   const baseCement = 380;
+  const baseFlyAsh = 40;
 
-  // Material costs
-  const cementCost = 6; // per kg
-  const transportCostPerKm = 200; // per km
-  const transportMultiplier = 1; + (transportDistance / 100);
+  // Material costs (per kg)
+  const cementCost = 6;
+  const flyAshCost = 2;
+  const costPerKm = 120; // per km per unit
   
-  // Calculate impacts based on parameters
-  const mixCost = (baseCement * quantity * cementCost) / 1000;
-  const transportCost = Math.round(baseTransportCost * transportMultiplier * (quantity / 100));
+  // Calculate cement and fly ash based on mix ratio
+  const cementContent = baseCement * (1 - (mixRatio - 0.42) * 0.5); // Lower ratio = less cement
+  const flyAshContent = baseFlyAsh + (mixRatio - 0.42) * 100; // Higher ratio = more fly ash
+  
+  // Calculate transport cost: base + distance-based + quantity-based
+  const distanceCost = Math.round(costPerKm * transportDistance);
+  const quantityCost = Math.round((quantity / 100) * baseTransportCost * 0.5);
+  const transportCost = Math.round(baseTransportCost + distanceCost + quantityCost);
+  
+  // Calculate material costs
+  const cementTotalCost = Math.round((cementContent * quantity * cementCost) / 1000);
+  const flyAshTotalCost = Math.round((flyAshContent * quantity * flyAshCost) / 1000);
   const mixProductionCost = Math.round(baseCost + (curingTemp - 65) * 100 + (accelerator ? 500 : 0) + (automationLevel * 20));
-  const totalCost = Math.round(mixProductionCost + transportCost + mixCost);
+  const totalCost = Math.round(mixProductionCost + transportCost + cementTotalCost + flyAshTotalCost);
   
   const cycleTime = (baseTime - (curingTemp - 65) * 0.15 - (accelerator ? 1.5 : 0) + (holdTime - 4) * 0.5).toFixed(1);
-  const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100 + (transportDistance * 0.1));
-  const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3).toFixed(1);
+  const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100 + (transportDistance * 0.1) + (quantity * 0.01));
+  
+  // Strength calculation includes cement and fly ash content
+  const cementStrength = cementContent / baseCement; // Cement factor (1.0 = baseline)
+  const flyAshStrength = 1 + (flyAshContent / baseFlyAsh - 1) * 0.3; // Fly ash reduces strength by 30%
+  const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3) * cementStrength * flyAshStrength;
+  
   const energyUsage = Math.round(100 + (curingTemp - 65) * 5 + (holdTime - 4) * 8);
 
   const getCostChange = () => {
-    const change = ((cost - baseCost) / baseCost * 100).toFixed(1);
+    const change = ((totalCost - (baseCost + baseTransportCost)) / (baseCost + baseTransportCost) * 100).toFixed(1);
     return parseFloat(change);
   };
 
@@ -251,13 +266,25 @@ export function SimulationPlayground() {
                     <span>Mix & Production:</span>
                     <span className="font-semibold">₹{mixProductionCost.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Transport ({transportDistance}km):</span>
-                    <span className="font-semibold">₹{transportCost.toLocaleString()}</span>
+                  <div className="flex justify-between pl-2 text-gray-500 text-xs">
+                    <span>Base cost + distance +{transportDistance}km</span>
+                    <span className="font-semibold">₹{(baseTransportCost + distanceCost).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between pl-2 text-gray-500 text-xs">
+                    <span>Quantity factor ({quantity} units)</span>
+                    <span className="font-semibold">+₹{quantityCost.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-1">
+                    <span>Total Transport:</span>
+                    <span className="font-semibold text-orange-600">₹{transportCost.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Cement ({quantity} units):</span>
-                    <span className="font-semibold">₹{Math.round(mixCost).toLocaleString()}</span>
+                    <span>Cement ({cementContent.toFixed(0)}kg/unit):</span>
+                    <span className="font-semibold">₹{cementTotalCost.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Fly Ash ({flyAshContent.toFixed(0)}kg/unit):</span>
+                    <span className="font-semibold">₹{flyAshTotalCost.toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -308,18 +335,26 @@ export function SimulationPlayground() {
                 <Zap className="text-purple-700" size={24} />
                 <span className="text-sm font-semibold text-gray-700">Strength Gain</span>
               </div>
-              <div className="text-4xl font-bold text-gray-900">{strength} MPa</div>
+              <div className="text-4xl font-bold text-gray-900">{strength.toFixed(2)} MPa</div>
               <div className="text-sm text-gray-600 mt-1">at demoulding (24h)</div>
 
-              <div className="mt-4 bg-white rounded-lg p-3">
-                <div className="flex justify-between text-sm mb-2">
+              <div className="mt-4 bg-white rounded-lg p-3 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Cement Factor:</span>
+                  <span className="font-semibold">{cementStrength.toFixed(2)}x ({cementContent.toFixed(0)}kg)</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Fly Ash Impact:</span>
+                  <span className="font-semibold text-orange-600">{flyAshStrength.toFixed(2)}x ({flyAshContent.toFixed(0)}kg)</span>
+                </div>
+                <div className="border-t pt-2 flex justify-between text-sm">
                   <span className="text-gray-700">Progress to target (28 MPa):</span>
-                  <span className="font-bold text-gray-900">{((parseFloat(strength) / 28) * 100).toFixed(0)}%</span>
+                  <span className="font-bold text-gray-900">{((parseFloat(strength.toFixed(2)) / 28) * 100).toFixed(0)}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
                     className="bg-gradient-to-r from-purple-500 to-purple-700 h-3 rounded-full"
-                    style={{ width: `${Math.min((parseFloat(strength) / 28) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((parseFloat(strength.toFixed(2)) / 28) * 100, 100)}%` }}
                   ></div>
                 </div>
               </div>

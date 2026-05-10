@@ -1,34 +1,16 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from "recharts";
-import { Send, Zap, AlertTriangle, CheckCircle, ThermometerSun, Activity, ArrowLeft, Truck } from "lucide-react";
+import { Zap, AlertTriangle, CheckCircle, ThermometerSun, Activity, ArrowLeft, Truck } from "lucide-react";
 import { getProcesses, ProcessRecord } from "@/lib/supabase";
 
-const chatHistory = [
-  {
-    role: "ai",
-    message: "Process loaded. Current optimization: safe to demould at the scheduled time with target strength achieved.",
-    timestamp: "13:42"
-  },
-  {
-    role: "user",
-    message: "What about transportation?",
-    timestamp: "13:45"
-  },
-  {
-    role: "ai",
-    message: "✅ Transportation route optimized. Factor applied: 1.2x\n\nCost impact: ₹2,400 added for logistics.\n\nRequired equipment:\n- Moulds: 2 units\n- Cranes: 1 unit\n\nRecommendation: Schedule pickup at off-peak hours to save 15% on crane rental.",
-    timestamp: "13:45"
-  },
-];
+
 
 export function ProcessDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [process, setProcess] = useState<ProcessRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [chats, setChats] = useState(chatHistory);
 
   useEffect(() => {
     loadProcessDetail();
@@ -51,25 +33,7 @@ export function ProcessDetail() {
     }
   };
 
-  const handleSend = () => {
-    if (!message.trim()) return;
-    
-    setChats([...chats, {
-      role: "user",
-      message,
-      timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    }]);
-    
-    setTimeout(() => {
-      setChats(prev => [...prev, {
-        role: "ai",
-        message: "Based on current conditions, that adjustment is feasible. I'll update the optimization model and notify you of any impacts.",
-        timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-      }]);
-    }, 1000);
-    
-    setMessage("");
-  };
+
 
   if (isLoading) {
     return (
@@ -306,53 +270,7 @@ export function ProcessDetail() {
         </div>
       </div>
 
-      {/* AI Chat Sidebar - 30% */}
-      <div className="w-[30%] bg-white border-l border-gray-200 flex flex-col">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            🤖 Live AI Assistant
-          </h2>
-          <p className="text-sm text-gray-600 mt-1">Ask about this process</p>
-        </div>
 
-        {/* Chat History */}
-        <div className="flex-1 overflow-auto p-6 space-y-4">
-          {chats.map((chat, idx) => (
-            <div key={idx} className={`flex ${chat.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] ${
-                chat.role === 'user' 
-                  ? 'bg-[#005EB8] text-white' 
-                  : 'bg-gray-100 text-gray-900 border border-gray-200'
-              } rounded-xl p-4`}>
-                <div className="text-sm whitespace-pre-line">{chat.message}</div>
-                <div className={`text-xs mt-2 ${chat.role === 'user' ? 'text-blue-200' : 'text-gray-500'}`}>
-                  {chat.timestamp}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Input */}
-        <div className="p-6 border-t border-gray-200">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about optimization..."
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]"
-            />
-            <button 
-              onClick={handleSend}
-              className="bg-[#005EB8] text-white p-3 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Send size={20} />
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
