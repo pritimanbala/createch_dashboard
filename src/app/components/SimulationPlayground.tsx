@@ -9,6 +9,8 @@ export function SimulationPlayground() {
   const [holdTime, setHoldTime] = useState(4);
   const [transportDistance, setTransportDistance] = useState(25);
   const [quantity, setQuantity] = useState(100);
+  const [cementContent, setCementContent] = useState(380);
+  const [flyAshContent, setFlyAshContent] = useState(25);
 
   // Base values for comparison
   const baseCost = 10000;
@@ -16,26 +18,28 @@ export function SimulationPlayground() {
   const baseCO2 = 30;
   const baseStrength = 15;
   const baseTransportCost = 5000;
-  const baseCement = 380;
+  const baseDistanceKm = 25;
 
   // Material costs
-  const cementCost = 6; // per kg
-  const transportCostPerKm = 200; // per km
-  const transportMultiplier = 1; + (transportDistance / 100);
-  
+  const cementCostPerKg = 6;
+  const flyAshCostPerKg = 3;
+  const transportCostPerKm = 200;
+
   // Calculate impacts based on parameters
-  const mixCost = (baseCement * quantity * cementCost) / 1000;
-  const transportCost = Math.round(baseTransportCost * transportMultiplier * (quantity / 100));
+  const materialCost = Math.round((cementContent * cementCostPerKg + flyAshContent * flyAshCostPerKg) * quantity);
+  const baseTransportAtDistance = baseTransportCost * (quantity / 100);
+  const transportDistanceIncrement = Math.max(0, transportDistance - baseDistanceKm) * transportCostPerKm * (quantity / 100);
+  const transportCost = Math.round(baseTransportAtDistance + transportDistanceIncrement);
   const mixProductionCost = Math.round(baseCost + (curingTemp - 65) * 100 + (accelerator ? 500 : 0) + (automationLevel * 20));
-  const totalCost = Math.round(mixProductionCost + transportCost + mixCost);
+  const totalCost = Math.round(mixProductionCost + transportCost + materialCost);
   
   const cycleTime = (baseTime - (curingTemp - 65) * 0.15 - (accelerator ? 1.5 : 0) + (holdTime - 4) * 0.5).toFixed(1);
   const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100 + (transportDistance * 0.1));
-  const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3).toFixed(1);
+  const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3 + (cementContent - 380) * 0.01 + flyAshContent * 0.008 - (mixRatio - 0.42) * 12).toFixed(1);
   const energyUsage = Math.round(100 + (curingTemp - 65) * 5 + (holdTime - 4) * 8);
 
   const getCostChange = () => {
-    const change = ((cost - baseCost) / baseCost * 100).toFixed(1);
+    const change = ((totalCost - baseCost) / baseCost * 100).toFixed(1);
     return parseFloat(change);
   };
 
@@ -152,8 +156,22 @@ export function SimulationPlayground() {
                   <span>200 km (Long)</span>
                 </div>
                 <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Transport cost = ₹{transportCost.toLocaleString()} (distance + quantity dependent)
+                  Transport cost = ₹{transportCost.toLocaleString()} (base + distance increment). Increment beyond 25 km: ₹{Math.round(transportDistanceIncrement).toLocaleString()}
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Cement Content: {cementContent} kg/m³
+                </label>
+                <input type="range" min="280" max="500" value={cementContent} onChange={(e) => setCementContent(Number(e.target.value))} className="w-full" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Fly Ash Content: {flyAshContent} kg/m³
+                </label>
+                <input type="range" min="0" max="120" value={flyAshContent} onChange={(e) => setFlyAshContent(Number(e.target.value))} className="w-full" />
               </div>
 
               <div>
@@ -256,8 +274,8 @@ export function SimulationPlayground() {
                     <span className="font-semibold">₹{transportCost.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Cement ({quantity} units):</span>
-                    <span className="font-semibold">₹{Math.round(mixCost).toLocaleString()}</span>
+                    <span>Materials ({quantity} units):</span>
+                    <span className="font-semibold">₹{materialCost.toLocaleString()}</span>
                   </div>
                 </div>
               </div>

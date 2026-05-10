@@ -332,8 +332,10 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
       setStep("initial");
       setSelectedOption(null);
       setSelectedSuggestion(null);
-      setMaterialName("");
-      setMaterialDimensions("");
+      setMaterialName("U-Shape");
+      setMaterialLengthMm(5000);
+      setMaterialWidthMm(3000);
+      setMaterialHeightMm(1500);
       setQuantity(1);
       setScheduledStartTime("");
       setScheduledEndTime("");
