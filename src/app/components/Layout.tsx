@@ -1,4 +1,5 @@
-import { Outlet, Link, useLocation } from "react-router";
+import { Outlet, Link, useLocation, useNavigate } from "react-router";
+import { useEffect } from "react";
 import { LayoutDashboard, Search, Bell, User, PlusCircle, Sliders } from "lucide-react";
 
 const navItems = [
@@ -7,8 +8,15 @@ const navItems = [
   { path: "/simulation-playground", label: "Simulation Playground", icon: Sliders },
 ];
 
+
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const isLoggedIn = localStorage.getItem("isLoggedIn") === "true";
+    if (!isLoggedIn) navigate("/login", { replace: true });
+  }, [navigate]);
 
   return (
     <div className="flex h-screen bg-gray-50">
