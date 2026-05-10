@@ -246,7 +246,22 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
     
     // Cranes needed: realistic calculation
     // For 1000 units/day → ~5 cranes; proportional scaling
-    const cranesNeeded = Math.max(1, Math.ceil(quantity / 200));
+   const mouldsPerCranePerDay = 200;
+
+// Convert total duration from minutes to days
+const totalDays = totalDurationMinutes / (60 * 24);
+
+// Avoid division issues
+const safeDays = Math.max(totalDays, 1);
+
+// Calculate required production rate
+const requiredMouldsPerDay = quantity / safeDays;
+
+// Final crane calculation
+const cranesNeeded = Math.max(
+  1,
+  Math.ceil(requiredMouldsPerDay / mouldsPerCranePerDay)
+);
 
     // Update moulds and cranes based on calculations
     setMouldsRequired(mouldsNeeded);
