@@ -1,11 +1,12 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import { useEffect } from "react";
-import { LayoutDashboard, Search, Bell, User, PlusCircle, Sliders } from "lucide-react";
+import { LayoutDashboard, Search, Bell, User, PlusCircle, Sliders, Settings } from "lucide-react";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/add-process", label: "Add Process", icon: PlusCircle },
+  { path: "/add-process", label: "Add process using AI", icon: PlusCircle },
   { path: "/simulation-playground", label: "Simulation Playground", icon: Sliders },
+  { path: "/price-settings", label: "Price Settings", icon: Settings },
 ];
 
 
@@ -50,12 +51,12 @@ export function Layout() {
             );
           })}
         </nav>
-        <div className="p-4 border-t border-gray-200">
+        {/* <div className="p-4 border-t border-gray-200">
           <div className="text-xs text-gray-600">
             <div className="font-semibold mb-1">Fixed Capacity</div>
             <div>24 Moulds • 8 Chambers • 4 Cranes</div>
           </div>
-        </div>
+        </div> */}
       </aside>
 
       {/* Main Content */}
@@ -64,7 +65,7 @@ export function Layout() {
         <header className="bg-white shadow-sm border-b border-gray-200 px-8 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-gray-800">
-              Hi Rajesh, Welcome to L&T Precast AI!
+              Hi Arka Latua, Welcome to L&T Precast AI!
             </h2>
             <p className="text-sm text-gray-600 mt-1">
               {new Date().toLocaleDateString("en-IN", {

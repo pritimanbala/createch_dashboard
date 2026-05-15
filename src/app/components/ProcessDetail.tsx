@@ -4,6 +4,33 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Zap, AlertTriangle, CheckCircle, ThermometerSun, Activity, ArrowLeft, Truck } from "lucide-react";
 import { getProcesses, ProcessRecord } from "@/lib/supabase";
 
+type TimelinePoint = {
+  time: string;
+  hours: number;
+  temp: number;
+  maturity: number;
+  strength: number;
+};
+
+function seededOffset(seedText: string) {
+  let hash = 0;
+  for (let i = 0; i < seedText.length; i += 1) {
+    hash = (hash * 31 + seedText.charCodeAt(i)) % 9973;
+  }
+  return hash / 9973;
+}
+
+function strategyDelay(strategy: ProcessRecord["strategy_type"]) {
+  if (strategy === "greenest") return 1.6;
+  if (strategy === "cheapest") return 0.8;
+  if (strategy === "manual") return 0.6;
+  return -0.5;
+}
+
+function formatHours(hours: number) {
+  const rounded = Math.round(hours * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}h`;
+}
 
 export function ProcessDetail() {
   const { id } = useParams();
@@ -54,18 +81,94 @@ export function ProcessDetail() {
     );
   }
 
-  const timelineData = [
-    { time: "0h", temp: 20, maturity: 0, strength: 0 },
-    { time: "2h", temp: 22, maturity: 44, strength: 1.2 },
-    { time: "4h", temp: 55, maturity: 154, strength: 4.8 },
-    { time: "6h", temp: 65, maturity: 404, strength: 10.2 },
-    { time: "6.5h", temp: 65, maturity: 437, strength: 12.8 },
-    { time: "8h", temp: 58, maturity: 530, strength: 14.2 },
-    { time: "10h", temp: 42, maturity: 630, strength: 15.1 },
-    { time: "12h", temp: 28, maturity: 710, strength: 15.6 },
-  ];
-
   const castingTimeHours = process.casting_time_minutes ? process.casting_time_minutes / 60 : 0.5;
+  const timelineData: TimelinePoint[] = (() => {
+    const seed = seededOffset(`${process.id}-${process.material_name}-${process.strategy_type}`);
+    const delay = strategyDelay(process.strategy_type);
+    const curingAgeDays = process.age || 14;
+    const basePeakTemp =
+      process.curing_method === "steam" ? 67 : process.curing_method === "chamber" ? 56 : 41;
+    const peakTemp = Math.max(34, basePeakTemp + (seed - 0.5) * 10);
+
+    const checkpoints = [
+      0,
+      1.2 + castingTimeHours * 0.7 + Math.max(delay * 0.2, 0),
+      2.8 + castingTimeHours + Math.max(delay * 0.35, 0),
+      5.1 + Math.max(delay * 0.55, 0),
+      7.4 + Math.max(delay * 0.7, 0),
+      10 + Math.max(delay, 0) + (curingAgeDays - 10) * 0.08,
+      12.4 + Math.max(delay * 1.1, 0) + (curingAgeDays - 10) * 0.1,
+    ];
+
+    const stageTemps = [
+      22 + seed * 2.5,
+      26 + seed * 3.5,
+      peakTemp * 0.78,
+      peakTemp,
+      peakTemp - (8 + seed * 3),
+      38 + seed * 4,
+      29 + seed * 3,
+    ];
+
+    const targetStrength = process.target_strength || 15;
+    const finalStrength = targetStrength * (1 + (seed - 0.5) * 0.16);
+    const maturityScale =
+      430 +
+      delay * 40 +
+      (process.curing_method === "steam" ? -35 : process.curing_method === "ambient" ? 50 : 0);
+
+    let maturity = 0;
+    let previousStrength = 0;
+
+    return checkpoints.map((hours, index) => {
+      if (index > 0) {
+        const deltaHours = Math.max(hours - checkpoints[index - 1], 0.2);
+        const avgTemp = (stageTemps[index] + stageTemps[index - 1]) / 2;
+        maturity += avgTemp * deltaHours;
+      }
+
+      const growth = 1 - Math.exp(-maturity / Math.max(maturityScale, 250));
+      const rawStrength = Math.max(0, finalStrength * growth);
+      const strength = Math.max(previousStrength, Math.round(rawStrength * 10) / 10);
+      previousStrength = strength;
+
+      return {
+        time: formatHours(hours),
+        hours: Math.round(hours * 10) / 10,
+        temp: Math.round(stageTemps[index] * 10) / 10,
+        maturity: Math.round(maturity),
+        strength,
+      };
+    });
+  })();
+
+  const regression = (() => {
+    if (timelineData.length < 2) return null;
+
+    const n = timelineData.length;
+    const sumX = timelineData.reduce((acc, point) => acc + point.maturity, 0);
+    const sumY = timelineData.reduce((acc, point) => acc + point.strength, 0);
+    const sumXY = timelineData.reduce((acc, point) => acc + point.maturity * point.strength, 0);
+    const sumX2 = timelineData.reduce((acc, point) => acc + point.maturity * point.maturity, 0);
+    const denominator = n * sumX2 - sumX * sumX;
+    if (denominator === 0) return null;
+
+    const slope = (n * sumXY - sumX * sumY) / denominator;
+    const intercept = (sumY - slope * sumX) / n;
+    const meanY = sumY / n;
+    const ssTotal = timelineData.reduce((acc, point) => acc + Math.pow(point.strength - meanY, 2), 0);
+    const ssResidual = timelineData.reduce((acc, point) => {
+      const predicted = intercept + slope * point.maturity;
+      return acc + Math.pow(point.strength - predicted, 2);
+    }, 0);
+    const rSquared = ssTotal === 0 ? 1 : 1 - ssResidual / ssTotal;
+
+    return {
+      slope: Math.round(slope * 10000) / 10000,
+      intercept: Math.round(intercept * 100) / 100,
+      rSquared: Math.max(0, Math.min(1, Math.round(rSquared * 1000) / 1000)),
+    };
+  })();
 
   return (
     <div className="flex h-full">
@@ -171,6 +274,11 @@ export function ProcessDetail() {
             <Activity className="text-green-600" />
             Maturity Index Progress
           </h2>
+          {regression && (
+            <div className="mb-4 text-sm text-gray-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              Strength vs Maturity Regression: Strength = {regression.intercept} + {regression.slope} * Maturity | R2 = {regression.rSquared}
+            </div>
+          )}
           <ResponsiveContainer width="100%" height={250}>
             <AreaChart data={timelineData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -194,10 +302,10 @@ export function ProcessDetail() {
                     <p className="text-orange-100 text-sm">Location</p>
                     <p className="text-white font-semibold">{process.transportation_location}</p>
                   </div>
-                  <div>
+                  {/* <div>
                     <p className="text-orange-100 text-sm">Transportation Factor</p>
                     <p className="text-white font-semibold">{process.transportation_factor || 0}x</p>
-                  </div>
+                  </div> */}
                   <div>
                     <p className="text-orange-100 text-sm">Transportation Cost</p>
                     <p className="text-white font-semibold">₹{process.transportation_cost || 0}</p>

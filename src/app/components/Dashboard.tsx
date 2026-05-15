@@ -64,7 +64,7 @@ export function Dashboard() {
   return (
     <div className="p-8">
       {/* KPIs */}
-      <div className="grid grid-cols-4 gap-6 mb-8">
+      {/* <div className="grid grid-cols-4 gap-6 mb-8">
         {kpis.map((kpi, idx) => {
           const Icon = kpi.icon;
           return (
@@ -90,7 +90,7 @@ export function Dashboard() {
             </div>
           );
         })}
-      </div>
+      </div> */}
 
       {/* Live Production Processes */}
       <div className="mb-8">
@@ -196,8 +196,8 @@ export function Dashboard() {
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-gray-900">{process.transportation_location}</p>
                         <div className="flex gap-4 mt-1 text-xs text-gray-600">
-                          <span>Factor: {process.transportation_factor || 0}x</span>
-                          <span>•</span>
+                          {/* <span>Factor: {process.transportation_factor || 0}x</span> */}
+                          {/* <span>•</span> */}
                           <span>Cost: ₹{process.transportation_cost || 0}</span>
                         </div>
                       </div>
@@ -219,7 +219,7 @@ export function Dashboard() {
       </div>
 
       {/* Resource Timeline */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+      {/* <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
         <h2 className="text-lg font-bold text-gray-900 mb-4">Resource Utilization Timeline</h2>
         <div className="space-y-4">
           {[
@@ -241,7 +241,7 @@ export function Dashboard() {
             </div>
           ))}
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }

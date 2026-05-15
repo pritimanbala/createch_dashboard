@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Clock, Leaf, Zap, Cloud, Droplets, Wind, ThermometerSun, AlertTriangle, CheckCircle, Loader, AlertCircle, MapPin, Truck, Wrench } from "lucide-react";
+import { Clock, DollarSign, Leaf, Zap, Cloud, Droplets, Wind, ThermometerSun, AlertTriangle, CheckCircle, Loader, AlertCircle, MapPin, Truck, Wrench } from "lucide-react";
 import { createProcess, checkTimelineConflict, ProcessRecord } from "@/lib/supabase";
 import { getWeatherForecast, WeatherForecast } from "@/lib/weather";
-import { calculateScalableCost, calculateScalableResources, calculateTransportationCost } from "@/lib/calculations";
+import { calculateScalableCost, calculateScalableResources, calculateScalableTime, calculateTransportationCost } from "@/lib/calculations";
+import { estimateConcreteStrength, StrengthEstimate } from "@/lib/strengthEstimator";
 
 type Step = "initial" | "constraints" | "loading" | "results" | "confirm";
 
@@ -22,7 +23,7 @@ const MATERIAL_SHAPES = [
 ];
 
 interface ProcessSuggestion {
-  type: "cheapest" | "fastest" | "greenest";
+  type: "cheapest" | "fastest" | "greenest" | "manual";
   title: string;
   metric: string;
   value: string;
@@ -43,6 +44,11 @@ interface ProcessSuggestion {
     chambers: number;
     mould: number;
   };
+  tradeoffs: {
+    cost: number;
+    timeHours: number;
+    co2Kg: number;
+  };
   details: string[];
   note: string;
 }
@@ -58,6 +64,14 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
   const [selectedSuggestion, setSelectedSuggestion] = useState<ProcessSuggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [timelineConflicts, setTimelineConflicts] = useState<ProcessRecord[]>([]);
+  const [manualStrengthEstimate, setManualStrengthEstimate] = useState<StrengthEstimate | null>(null);
+
+  // Auto-redirect to AI on initial load
+  useEffect(() => {
+    if (step === "initial") {
+      handleStartAI();
+    }
+  }, []);
 
   // Form fields
   const [materialName, setMaterialName] = useState("U-Shape");
@@ -79,6 +93,15 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
   const [castingTimeMinutes, setCastingTimeMinutes] = useState(30);
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecast | null>(null);
   const [loadingWeather, setLoadingWeather] = useState(false);
+  const [manualCement, setManualCement] = useState(390);
+  const [manualSlag, setManualSlag] = useState(45);
+  const [manualFlyAsh, setManualFlyAsh] = useState(25);
+  const [manualWater, setManualWater] = useState(185);
+  const [manualSuperplasticizer, setManualSuperplasticizer] = useState(4.5);
+  const [manualCoarse, setManualCoarse] = useState(900);
+  const [manualFine, setManualFine] = useState(650);
+  const [manualCuringAge, setManualCuringAge] = useState(14);
+  const [manualCuringMethod, setManualCuringMethod] = useState("ambient");
 
   // Fetch weather when constraints step is entered or location changes
   useEffect(() => {
@@ -106,9 +129,9 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
       metric: "Cost",
       value: "₹8,450",
       change: "-22%",
-      icon: Leaf,
-      color: "border-green-500 bg-green-50",
-      badge: "bg-green-500",
+      icon: DollarSign,
+      color: "border-yellow-500 bg-yellow-50",
+      badge: "bg-yellow-500",
       parameters: {
         cement: 380.0,
         slag: 45.0,
@@ -122,17 +145,22 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         chambers: 2,
         mould: 1,
       },
+      tradeoffs: {
+        cost: 8450,
+        timeHours: 12,
+        co2Kg: 28,
+      },
       details: [
         "Curing: 12 hours",
         "Ambient temperature",
         "Energy -18%",
-        "CO₂ -14kg"
+        "CO2 -14kg"
       ],
       note: "Best value, uses less steam while safe"
     },
     {
       type: "fastest",
-      title: "FASTEST",
+      title: "EARLIEST",
       metric: "Time",
       value: "10.2h",
       change: "-28%",
@@ -152,18 +180,23 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         chambers: 3,
         mould: 1,
       },
+      tradeoffs: {
+        cost: 10250,
+        timeHours: 10.2,
+        co2Kg: 44,
+      },
       details: [
         "Curing: 10 hours",
         "Steam accelerated",
         "Energy +12%",
-        "CO₂ +8kg"
+        "CO2 +8kg"
       ],
-      note: "Fastest option, 2h time savings vs cheapest"
+      note: "Earliest option, 2h time savings vs cheapest"
     },
     {
       type: "greenest",
       title: "GREENEST",
-      metric: "CO₂",
+      metric: "CO2",
       value: "22kg",
       change: "-35%",
       icon: Leaf,
@@ -182,20 +215,77 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
         chambers: 1,
         mould: 1,
       },
+      tradeoffs: {
+        cost: 9150,
+        timeHours: 15,
+        co2Kg: 22,
+      },
       details: [
         "Curing: 15 hours",
         "Natural ambient",
         "Energy -32%",
         "Max sustainability"
       ],
-      note: "Eco-friendly, 3h slower than fastest"
+      note: "Eco-friendly, 3h slower than earliest"
     }
   ];
+
+  const formatCost = (cost: number) =>
+    `₹${calculateScalableCost(cost, quantity, 0.85).toLocaleString()}`;
+
+  const formatTime = (hours: number) => {
+    const scaledHours = calculateScalableTime(hours, quantity, 0.7);
+    return `${Number.isInteger(scaledHours) ? scaledHours.toFixed(0) : scaledHours.toFixed(1)}h`;
+  };
+  const formatCostUsd = (cost: number) =>
+    `$${calculateScalableCost(cost, quantity, 0.85).toLocaleString()}`;
+
+  const formatCo2 = (co2Kg: number) => `${Math.round(co2Kg * quantity).toLocaleString()}kg`;
+
+  const getPrimaryValue = (suggestion: ProcessSuggestion) => {
+    if (suggestion.type === "cheapest") return formatCostUsd(suggestion.tradeoffs.cost);
+    if (suggestion.type === "fastest") return formatTime(suggestion.tradeoffs.timeHours);
+    if (suggestion.type === "greenest") return formatCo2(suggestion.tradeoffs.co2Kg);
+    return suggestion.value;
+  };
+
+  const getTradeoffItems = (suggestion: ProcessSuggestion) => {
+    if (suggestion.type === "cheapest") {
+      return [
+        { label: "Time", value: formatTime(suggestion.tradeoffs.timeHours) },
+        { label: "CO2 emissions", value: formatCo2(suggestion.tradeoffs.co2Kg) },
+      ];
+    }
+
+    if (suggestion.type === "fastest") {
+      return [
+        { label: "Cost", value: formatCostUsd(suggestion.tradeoffs.cost) },
+        { label: "CO2 emissions", value: formatCo2(suggestion.tradeoffs.co2Kg) },
+      ];
+    }
+
+    if (suggestion.type === "greenest") {
+      return [
+        { label: "Time", value: formatTime(suggestion.tradeoffs.timeHours) },
+        { label: "Cost", value: formatCostUsd(suggestion.tradeoffs.cost) },
+      ];
+    }
+
+    return [];
+  };
 
   const handleStartAI = () => {
     setSelectedOption("ai");
     setStep("constraints");
     setError(null);
+  };
+
+  const handleStartManual = () => {
+    setSelectedOption("manual");
+    setStep("constraints");
+    setError(null);
+    setSelectedSuggestion(null);
+    setManualStrengthEstimate(null);
   };
 
   const validateConstraints = () => {
@@ -222,18 +312,75 @@ export function AddProcess({ onProcessAdded }: AddProcessProps) {
     return true;
   };
 
+  const calculateRequiredResources = () => {
+    const totalDurationMinutes = scheduledStartTime && scheduledEndTime
+      ? Math.round((new Date(scheduledEndTime).getTime() - new Date(scheduledStartTime).getTime()) / 60000)
+      : 480;
+    const safeDurationMinutes = Math.max(totalDurationMinutes, 60);
+    const totalCastingTimeNeeded = castingTimeMinutes * quantity;
+    const mouldsNeeded = Math.max(1, Math.ceil(totalCastingTimeNeeded / safeDurationMinutes));
+    const totalDays = safeDurationMinutes / (60 * 24);
+    const safeDays = Math.max(totalDays, 1);
+    const requiredMouldsPerDay = quantity / safeDays;
+    const cranesNeeded = Math.max(1, Math.ceil(requiredMouldsPerDay / 200));
+
+    return { mouldsNeeded, cranesNeeded };
+  };
+
+  const buildManualSuggestion = (
+    estimate: StrengthEstimate,
+    mouldsNeeded: number
+  ): ProcessSuggestion => {
+    const isWithinTarget = estimate.estimatedStrength >= desiredStrength;
+    const margin = Math.round((estimate.estimatedStrength - desiredStrength) * 10) / 10;
+
+    return {
+      type: "manual",
+      title: "MANUAL MIX",
+      metric: "Strength",
+      value: `${estimate.estimatedStrength} MPa`,
+      change: `${margin >= 0 ? "+" : ""}${margin} MPa vs target`,
+      icon: AlertTriangle,
+      color: isWithinTarget ? "border-blue-500 bg-blue-50" : "border-orange-500 bg-orange-50",
+      badge: isWithinTarget ? "bg-blue-600" : "bg-orange-500",
+      parameters: {
+        cement: manualCement,
+        slag: manualSlag,
+        fly_ash: manualFlyAsh,
+        water: manualWater,
+        superplasticizer: manualSuperplasticizer,
+        coarse: manualCoarse,
+        fine: manualFine,
+        age: manualCuringAge,
+        curing_method: manualCuringMethod,
+        chambers: manualCuringMethod === "steam" || manualCuringMethod === "chamber" ? 2 : 1,
+        mould: mouldsNeeded,
+      },
+      tradeoffs: {
+        cost: 8450,
+        timeHours: manualCuringAge * 24,
+        co2Kg: 32,
+      },
+      details: [
+        `Estimated strength range: ${estimate.lowerBound}-${estimate.upperBound} MPa`,
+        `Water-binder ratio: ${estimate.waterCementitiousRatio}`,
+        `Binder content: ${estimate.binderKg} kg/m3`,
+        `Confidence: ${estimate.confidence}`,
+      ],
+      note: isWithinTarget
+        ? "Manual mix is likely to meet the target strength. Validate with cube testing before production release."
+        : "Manual mix is below target. Lower water, increase cementitious binder, or extend curing before production release.",
+    };
+  };
+
   const handleConstraintsSubmit = () => {
     if (!validateConstraints()) return;
 
-    setIsLoading(true);
-    setStep("loading");
     setError(null);
 
     // Calculate scalable costs and simulate AI processing
-    const baseCheapestCost = 8450;
     const baseTransportCost = 5000;
     
-    const scaledCheapestCost = calculateScalableCost(baseCheapestCost, quantity, 0.85);
     const scaledTransportCost = calculateTransportationCost(baseTransportCost, quantity, transportationDistanceKm, transportationType);
     
     // Calculate moulds needed: total_time_needed / time_per_mould = moulds_needed
@@ -267,6 +414,32 @@ const cranesNeeded = Math.max(
     setMouldsRequired(mouldsNeeded);
     setCranesRequired(cranesNeeded);
     setTransportationCost(scaledTransportCost);
+
+    if (selectedOption === "manual") {
+      const ambientDay = weatherForecast?.forecast[0];
+      const estimate = estimateConcreteStrength({
+        cement: manualCement,
+        slag: manualSlag,
+        flyAsh: manualFlyAsh,
+        water: manualWater,
+        superplasticizer: manualSuperplasticizer,
+        coarse: manualCoarse,
+        fine: manualFine,
+        ageDays: manualCuringAge,
+        curingMethod: manualCuringMethod,
+        desiredStrength,
+        ambientTemperature: ambientDay?.temperature,
+        humidity: ambientDay?.humidity,
+      });
+
+      setManualStrengthEstimate(estimate);
+      setSelectedSuggestion(buildManualSuggestion(estimate, mouldsNeeded));
+      setStep("confirm");
+      return;
+    }
+
+    setIsLoading(true);
+    setStep("loading");
 
     setTimeout(() => {
       setIsLoading(false);
@@ -309,7 +482,7 @@ const cranesNeeded = Math.max(
         quantity,
         scheduled_start_time: scheduledStartTime,
         scheduled_end_time: scheduledEndTime,
-        strategy_type: selectedSuggestion.type,
+        strategy_type: selectedSuggestion.type === "manual" ? "cheapest" : selectedSuggestion.type,
         cement: selectedSuggestion.parameters.cement,
         slag: selectedSuggestion.parameters.slag,
         fly_ash: selectedSuggestion.parameters.fly_ash,
@@ -362,39 +535,16 @@ const cranesNeeded = Math.max(
     }
   };
 
-  // Initial selection screen
+  // Initial selection screen - redirect directly to AI
   if (step === "initial") {
     return (
       <div className="p-8 max-w-[1440px] mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Add New Production Process</h1>
-          <p className="text-gray-600 mt-2">Choose how you&apos;d like to set up your next process</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-8">
-          {/* Manual Option */}
-          <button
-            onClick={() => setSelectedOption("manual")}
-            className="bg-white border-2 border-gray-300 rounded-xl p-8 hover:border-[#005EB8] hover:shadow-lg transition-all text-left group"
-          >
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-[#005EB8] group-hover:text-white transition-colors">
-              <AlertTriangle size={24} />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Add Manually</h2>
-            <p className="text-gray-600">Configure all mix composition parameters yourself with full control</p>
-          </button>
-
-          {/* AI Option */}
-          <button
-            onClick={handleStartAI}
-            className="bg-gradient-to-br from-[#005EB8] to-blue-600 border-2 border-[#005EB8] rounded-xl p-8 hover:shadow-lg transition-all text-left text-white"
-          >
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center mb-4">
-              <Zap size={24} />
-            </div>
-            <h2 className="text-2xl font-bold mb-2">Use AI</h2>
-            <p className="text-blue-100">Let AI analyze constraints and recommend optimal curing strategies</p>
-          </button>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="w-16 h-16 bg-[#005EB8] rounded-full flex items-center justify-center mb-4">
+            <Zap className="text-white animate-pulse" size={32} />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Starting AI Assistant</h1>
+          <p className="text-gray-600">Loading AI-powered process optimization...</p>
         </div>
       </div>
     );
@@ -405,8 +555,14 @@ const cranesNeeded = Math.max(
     return (
       <div className="p-8 max-w-[1440px] mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Project Constraints</h1>
-          <p className="text-gray-600 mt-2">Tell us about your production requirements</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {selectedOption === "manual" ? "Add Manual Process" : "Project Constraints"}
+          </h1>
+          <p className="text-gray-600 mt-2">
+            {selectedOption === "manual"
+              ? "Enter project constraints and mix design to estimate nearabout strength"
+              : "Tell us about your production requirements"}
+          </p>
         </div>
 
         <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-200 max-w-2xl">
@@ -593,6 +749,66 @@ const cranesNeeded = Math.max(
               />
             </div>
 
+            {selectedOption === "manual" && (
+              <div className="border-t pt-6">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Manual Mix Design</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Enter approximate kg/m3 values and the app will estimate likely compressive strength.
+                    </p>
+                  </div>
+                  <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-right">
+                    <p className="text-xs text-gray-600">Target</p>
+                    <p className="text-lg font-bold text-[#005EB8]">{desiredStrength} MPa</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Cement</label>
+                    <input type="number" value={manualCement} onChange={(e) => setManualCement(Number(e.target.value))} min={150} step={5} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Slag</label>
+                    <input type="number" value={manualSlag} onChange={(e) => setManualSlag(Number(e.target.value))} min={0} step={5} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Fly Ash</label>
+                    <input type="number" value={manualFlyAsh} onChange={(e) => setManualFlyAsh(Number(e.target.value))} min={0} step={5} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Water</label>
+                    <input type="number" value={manualWater} onChange={(e) => setManualWater(Number(e.target.value))} min={80} step={5} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Superplasticizer</label>
+                    <input type="number" value={manualSuperplasticizer} onChange={(e) => setManualSuperplasticizer(Number(e.target.value))} min={0} step={0.5} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Curing Method</label>
+                    <select value={manualCuringMethod} onChange={(e) => setManualCuringMethod(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]">
+                      <option value="ambient">Ambient</option>
+                      <option value="chamber">Chamber</option>
+                      <option value="steam">Steam</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Coarse Aggregate</label>
+                    <input type="number" value={manualCoarse} onChange={(e) => setManualCoarse(Number(e.target.value))} min={300} step={10} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Fine Aggregate</label>
+                    <input type="number" value={manualFine} onChange={(e) => setManualFine(Number(e.target.value))} min={250} step={10} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Curing Age (days)</label>
+                    <input type="number" value={manualCuringAge} onChange={(e) => setManualCuringAge(Number(e.target.value))} min={1} max={56} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Transportation Details */}
             <div className="border-t pt-6">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -686,7 +902,7 @@ const cranesNeeded = Math.max(
                 disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-[#005EB8] text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                Analyze with AI
+                {selectedOption === "manual" ? "Estimate Strength" : "Analyze with AI"}
               </button>
             </div>
           </div>
@@ -738,16 +954,24 @@ const cranesNeeded = Math.max(
                   <div>
                     <h3 className="font-bold text-gray-900">{suggestion.title}</h3>
                     <div className="text-2xl font-bold text-gray-900">
-                      {suggestion.type === 'cheapest' 
-                        ? `₹${calculateScalableCost(parseInt(suggestion.value.replace(/[₹,]/g, '')), quantity, 0.85).toLocaleString()}`
-                        : suggestion.value
-                      }
+                      {getPrimaryValue(suggestion)}
                     </div>
                     <div className={`text-sm font-semibold ${suggestion.change.startsWith('-') ? 'text-green-700' : 'text-red-700'}`}>
                       {suggestion.change.startsWith('-') ? '↓' : '↑'} {suggestion.change} for {quantity} unit{quantity > 1 ? 's' : ''}
                     </div>
                   </div>
                 </div>
+
+                {getTradeoffItems(suggestion).length > 0 && (
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {getTradeoffItems(suggestion).map((item) => (
+                      <div key={item.label} className="bg-white/80 border border-gray-200 rounded-lg p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{item.label}</div>
+                        <div className="text-base font-bold text-gray-900">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Parameters Table - Per Unit & Total */}
                 <div className="bg-white/80 rounded-lg p-4 mb-4 text-sm">
@@ -964,6 +1188,45 @@ const cranesNeeded = Math.max(
                   ))}
                 </div>
               </div>
+
+              {selectedOption === "manual" && manualStrengthEstimate && (
+                <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-4 mb-3">
+                    <div>
+                      <h3 className="font-bold text-gray-900">Estimated Strength Check</h3>
+                      <p className="text-sm text-gray-700 mt-1">
+                        Nearabout compressive strength based on your manual mix and curing conditions.
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600">Estimated</p>
+                      <p className="text-2xl font-bold text-[#005EB8]">{manualStrengthEstimate.estimatedStrength} MPa</p>
+                      <p className="text-xs text-gray-600">
+                        Range {manualStrengthEstimate.lowerBound}-{manualStrengthEstimate.upperBound} MPa
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <p className="text-xs text-gray-600">Target</p>
+                      <p className="font-bold text-gray-900">{desiredStrength} MPa</p>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <p className="text-xs text-gray-600">Water-Binder Ratio</p>
+                      <p className="font-bold text-gray-900">{manualStrengthEstimate.waterCementitiousRatio}</p>
+                    </div>
+                    <div className="bg-white/70 rounded-lg p-3">
+                      <p className="text-xs text-gray-600">Confidence</p>
+                      <p className="font-bold text-gray-900">{manualStrengthEstimate.confidence}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {manualStrengthEstimate.notes.map((note) => (
+                      <p key={note} className="text-sm text-gray-700">- {note}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Transportation Details */}
               <div className="bg-orange-50 border border-orange-300 rounded-lg p-4">

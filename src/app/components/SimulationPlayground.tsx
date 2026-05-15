@@ -1,390 +1,474 @@
-import { useState } from "react";
-import { Sliders, TrendingUp, TrendingDown, DollarSign, Clock, Leaf, Zap, BarChart3, Sparkles } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router";
+import {
+  BarChart3,
+  FlaskConical,
+  Loader2,
+  Package,
+  Truck,
+} from "lucide-react";
+import { estimateConcreteStrength, type StrengthEstimate } from "@/lib/strengthEstimator";
+
+const MATERIAL_SHAPES = [
+  "U-Shape",
+  "I-Beam",
+  "T-Beam",
+  "Box Girder",
+  "Wall Panel",
+  "Slab Panel",
+  "Pier Cap",
+  "Culvert",
+];
+
+const shapeVolumeFactor: Record<string, number> = {
+  "U-Shape": 0.58,
+  "I-Beam": 0.46,
+  "T-Beam": 0.55,
+  "Box Girder": 0.62,
+  "Wall Panel": 0.88,
+  "Slab Panel": 0.92,
+  "Pier Cap": 0.8,
+  Culvert: 0.68,
+};
+
+const transportMultiplier: Record<string, number> = {
+  road: 1,
+  rail: 0.78,
+  sea: 0.55,
+  viaduct: 1.25,
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const roundToTenth = (value: number) => Math.round(value * 10) / 10;
+
+function calibratePlaygroundStrength(
+  estimate: StrengthEstimate,
+  input: {
+    cement: number;
+    slag: number;
+    flyAsh: number;
+    water: number;
+    superplasticizer: number;
+    curingAge: number;
+    curingMethod: string;
+    curingTemp: number;
+  }
+) {
+  const binderKg = Math.max(input.cement + input.slag + input.flyAsh, 1);
+  const waterBinderRatio = input.water / binderKg;
+  const scmRatio = (input.slag + input.flyAsh) / binderKg;
+
+  const ratioScore = clamp((0.45 - waterBinderRatio) * 14, -2.4, 2.4);
+  const binderScore = clamp((binderKg - 380) * 0.012, -1.2, 1.2);
+  const ageScore = clamp((Math.log(input.curingAge + 1) / Math.log(29) - 0.75) * 4, -1.2, 1.6);
+  const curingScore = input.curingMethod === "steam" ? 1 : input.curingMethod === "chamber" ? 0.45 : -0.55;
+  const temperatureScore =
+    input.curingMethod === "ambient" ? 0 : clamp((input.curingTemp - 55) * 0.04, -0.4, 0.8);
+  const admixtureScore = clamp((input.superplasticizer / binderKg) * 45, 0, 0.9);
+  const scmScore = clamp((0.22 - scmRatio) * 2.2, -0.6, 0.5);
+
+  const estimatedStrength = roundToTenth(
+    clamp(
+      15.6 +
+        ratioScore +
+        binderScore +
+        ageScore +
+        curingScore +
+        temperatureScore +
+        admixtureScore +
+        scmScore,
+      15,
+      20
+    )
+  );
+  const regressionValue = roundToTenth(clamp(estimatedStrength + (estimate.rSquared - 0.82) * 3, 15, 20));
+  const tolerance = Math.max(1.2, estimatedStrength * 0.08);
+
+  return {
+    ...estimate,
+    estimatedStrength,
+    regressionValue,
+    lowerBound: roundToTenth(estimatedStrength - tolerance),
+    upperBound: roundToTenth(estimatedStrength + tolerance),
+  };
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  min,
+  step = 1,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  step?: number;
+  suffix?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-sm font-semibold text-gray-700 mb-2">{label}</span>
+      <div className="flex items-center rounded-lg border border-gray-300 bg-white focus-within:ring-2 focus-within:ring-[#005EB8]">
+        <input
+          type="number"
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+          min={min}
+          step={step}
+          className="w-full rounded-lg px-3 py-2 outline-none"
+        />
+        {suffix && <span className="pr-3 text-sm font-semibold text-gray-500">{suffix}</span>}
+      </div>
+    </label>
+  );
+}
 
 export function SimulationPlayground() {
+  const navigate = useNavigate();
+
+  const [materialName, setMaterialName] = useState("U-Shape");
+  const [projectLocation, setProjectLocation] = useState("Mumbai");
+  const [lengthMm, setLengthMm] = useState(5000);
+  const [widthMm, setWidthMm] = useState(3000);
+  const [heightMm, setHeightMm] = useState(1500);
+  const [quantity, setQuantity] = useState(12);
+
+  const [cement, setCement] = useState(390);
+  const [slag, setSlag] = useState(45);
+  const [flyAsh, setFlyAsh] = useState(25);
+  const [water, setWater] = useState(185);
+  const [superplasticizer, setSuperplasticizer] = useState(4.5);
+  const [coarse, setCoarse] = useState(900);
+  const [fine, setFine] = useState(650);
+
+  const [curingMethod, setCuringMethod] = useState("steam");
+  const [curingAge, setCuringAge] = useState(14);
   const [curingTemp, setCuringTemp] = useState(65);
-  const [mixRatio, setMixRatio] = useState(0.42);
-  const [accelerator, setAccelerator] = useState(true);
-  const [automationLevel, setAutomationLevel] = useState(70);
-  const [holdTime, setHoldTime] = useState(4);
-  const [transportDistance, setTransportDistance] = useState(25);
-  const [quantity, setQuantity] = useState(100);
-  const [cementContent, setCementContent] = useState(380);
-  const [flyAshContent, setFlyAshContent] = useState(25);
+  const [holdTimeHours, setHoldTimeHours] = useState(4);
+  const [castingTimeMinutes, setCastingTimeMinutes] = useState(30);
+  const [chambers, setChambers] = useState(2);
 
-  // Base values for comparison
-  const baseCost = 10000;
-  const baseTime = 12;
-  const baseCO2 = 30;
-  const baseStrength = 15;
-  const baseTransportCost = 5000;
-  const baseDistanceKm = 25;
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [transportFrom, setTransportFrom] = useState("Precast Yard");
+  const [transportDistanceKm, setTransportDistanceKm] = useState(25);
+  const [transportType, setTransportType] = useState("road");
+  const [hasCalculated, setHasCalculated] = useState(false);
 
-  // Material costs
-  const cementCostPerKg = 6;
-  const flyAshCostPerKg = 3;
-  const transportCostPerKm = 200;
+  // Load prices from localStorage or use defaults
+  const [prices, setPrices] = useState({
+    materials: {
+      cement: 350,
+      slag: 280,
+      flyAsh: 250,
+      water: 2,
+      superplasticizer: 45,
+      coarseAggregate: 25,
+      fineAggregate: 30,
+    },
+    energy: {
+      steam: 150,
+      electricity: 8,
+    },
+    transportation: {
+      baseCost: 5000,
+      perKmCost: 25,
+      perUnitCost: 100,
+    },
+    labor: {
+      skilled: 800,
+      unskilled: 500,
+      supervisor: 1200,
+    },
+    equipment: {
+      mould: 50000,
+      chamber: 200000,
+      crane: 150000,
+    },
+    overhead: {
+      percentage: 15,
+      fixedCost: 10000,
+    },
+  });
 
-  // Calculate impacts based on parameters
-  const materialCost = Math.round((cementContent * cementCostPerKg + flyAshContent * flyAshCostPerKg) * quantity);
-  const baseTransportAtDistance = baseTransportCost * (quantity / 100);
-  const transportDistanceIncrement = Math.max(0, transportDistance - baseDistanceKm) * transportCostPerKm * (quantity / 100);
-  const transportCost = Math.round(baseTransportAtDistance + transportDistanceIncrement);
-  const mixProductionCost = Math.round(baseCost + (curingTemp - 65) * 100 + (accelerator ? 500 : 0) + (automationLevel * 20));
-  const totalCost = Math.round(mixProductionCost + transportCost + materialCost);
+  useEffect(() => {
+    const savedPrices = localStorage.getItem('priceSettings');
+    if (savedPrices) {
+      setPrices(JSON.parse(savedPrices));
+    }
+  }, []);
+
+  const result = useMemo(() => {
+    const rawVolumeM3 = (lengthMm * widthMm * heightMm) / 1_000_000_000;
+    const volumeFactor = shapeVolumeFactor[materialName] ?? 0.75;
+    const volumePerUnitM3 = rawVolumeM3 * volumeFactor;
+    const totalVolumeM3 = volumePerUnitM3 * quantity;
+
+    const cementKg = cement * totalVolumeM3;
+    const slagKg = slag * totalVolumeM3;
+    const flyAshKg = flyAsh * totalVolumeM3;
+    const waterKg = water * totalVolumeM3;
+    const superplasticizerKg = superplasticizer * totalVolumeM3;
+    const coarseKg = coarse * totalVolumeM3;
+    const fineKg = fine * totalVolumeM3;
+
+    // Calculate costs using price settings
+    const cementCost = cementKg * (prices.materials.cement / 1000); // Convert from per ton to per kg
+    const slagCost = slagKg * (prices.materials.slag / 1000);
+    const flyAshCost = flyAshKg * (prices.materials.flyAsh / 1000);
+    const waterCost = waterKg * (prices.materials.water / 1000); // Convert from per kL to per kg (assuming 1kL = 1000kg)
+    const admixtureCost = superplasticizerKg * prices.materials.superplasticizer;
+    const aggregateCost = (coarseKg + fineKg) * ((prices.materials.coarseAggregate + prices.materials.fineAggregate) / 2 / 1000);
+    const materialCost = cementCost + slagCost + flyAshCost + waterCost + admixtureCost + aggregateCost;
+
+    const totalCastingMinutes = castingTimeMinutes * quantity;
+    const totalCastingHours = totalCastingMinutes / 60;
+    const mouldsRequired = Math.max(1, Math.ceil(totalCastingMinutes / Math.max(holdTimeHours * 60, 60)));
+    const cranesRequired = Math.max(1, Math.ceil(quantity / 200));
+    const cycleTimeHours = Math.round((totalCastingHours + holdTimeHours + 1.5) * 10) / 10;
+
+    const curingMultiplier = curingMethod === "steam" ? 1.45 : curingMethod === "chamber" ? 1.18 : 0.45;
+    const energyKwh = Math.round(quantity * holdTimeHours * curingMultiplier * (1 + Math.max(curingTemp - 30, 0) / 100));
+    const energyCost = energyKwh * prices.energy.electricity;
+    const curingCost = holdTimeHours * chambers * prices.energy.steam + energyCost;
+    // Simplified equipment and labor costs (these would need more detailed calculation in real scenario)
+    const mouldCost = mouldsRequired * 1000; // Simplified daily rental cost
+    const craneCost = cranesRequired * cycleTimeHours * 500; // Simplified hourly cost
+    const labourCost = quantity * 300; // Simplified labor cost per unit
+    const productionCost = curingCost + mouldCost + craneCost + labourCost;
+
+    const transportCost =
+      prices.transportation.baseCost +
+      transportDistanceKm * prices.transportation.perKmCost * quantity * (transportMultiplier[transportType] ?? 1) +
+      quantity * prices.transportation.perUnitCost;
+
+    const totalCost = materialCost + productionCost + transportCost;
+    const costPerUnit = totalCost / Math.max(quantity, 1);
+    const co2Kg = Math.round((cementKg * 0.82 + slagKg * 0.07 + flyAshKg * 0.03 + energyKwh * 0.7 + transportDistanceKm * quantity * 0.42) * 10) / 10;
+
+    const strength = calibratePlaygroundStrength(
+      estimateConcreteStrength({
+        cement,
+        slag,
+        flyAsh,
+        water,
+        superplasticizer,
+        coarse,
+        fine,
+        ageDays: curingAge,
+        curingMethod,
+        ambientTemperature: curingMethod === "ambient" ? 32 : curingTemp,
+        humidity: 65,
+      }),
+      {
+        cement,
+        slag,
+        flyAsh,
+        water,
+        superplasticizer,
+        curingAge,
+        curingMethod,
+        curingTemp,
+      }
+    );
+
+    return {
+      volumePerUnitM3,
+      totalVolumeM3,
+      materialBreakdown: {
+        cement: { kg: cementKg, cost: cementCost },
+        slag: { kg: slagKg, cost: slagCost },
+        flyAsh: { kg: flyAshKg, cost: flyAshCost },
+        water: { kg: waterKg, cost: waterCost },
+        superplasticizer: { kg: superplasticizerKg, cost: admixtureCost },
+        aggregate: { kg: coarseKg + fineKg, cost: aggregateCost },
+      },
+      materialCost,
+      curingCost,
+      energyCost,
+      mouldCost,
+      craneCost,
+      labourCost,
+      productionCost,
+      transportCost,
+      totalCost,
+      costPerUnit,
+      energyKwh,
+      co2Kg,
+      cycleTimeHours,
+      mouldsRequired,
+      cranesRequired,
+      strength,
+      materialName,
+      projectLocation,
+      lengthMm,
+      widthMm,
+      heightMm,
+      quantity,
+      cement,
+      slag,
+      flyAsh,
+      water,
+      superplasticizer,
+      coarse,
+      fine,
+      curingMethod,
+      curingAge,
+      curingTemp,
+      holdTimeHours,
+      castingTimeMinutes,
+      chambers,
+      transportFrom,
+      transportDistanceKm,
+      transportType,
+    };
+  }, [
+    // Material properties
+    cement, slag, flyAsh, water, superplasticizer, coarse, fine,
+    // Project constraints
+    lengthMm, widthMm, heightMm, quantity, materialName, projectLocation,
+    // Curing constraints
+    curingMethod, curingAge, curingTemp, holdTimeHours, castingTimeMinutes, chambers,
+    // Transportation constraints
+    transportFrom, transportDistanceKm, transportType,
+    // Price settings
+    prices,
+  ]);
+
+  const money = (value: number) => `Rs ${Math.round(value).toLocaleString("en-IN")}`;
+  const number = (value: number, digits = 1) => value.toLocaleString("en-IN", { maximumFractionDigits: digits });
+
   
-  const cycleTime = (baseTime - (curingTemp - 65) * 0.15 - (accelerator ? 1.5 : 0) + (holdTime - 4) * 0.5).toFixed(1);
-  const co2 = Math.round(baseCO2 + (curingTemp - 65) * 0.5 + (mixRatio - 0.42) * 100 + (transportDistance * 0.1));
-  const strength = (baseStrength + (curingTemp - 65) * 0.2 + (accelerator ? 2 : 0) + (holdTime - 4) * 0.3 + (cementContent - 380) * 0.01 + flyAshContent * 0.008 - (mixRatio - 0.42) * 12).toFixed(1);
-  const energyUsage = Math.round(100 + (curingTemp - 65) * 5 + (holdTime - 4) * 8);
-
-  const getCostChange = () => {
-    const change = ((totalCost - baseCost) / baseCost * 100).toFixed(1);
-    return parseFloat(change);
-  };
-
-  const getTimeChange = () => {
-    const change = ((parseFloat(cycleTime) - baseTime) / baseTime * 100).toFixed(1);
-    return parseFloat(change);
-  };
-
-  const getCO2Change = () => {
-    const change = ((co2 - baseCO2) / baseCO2 * 100).toFixed(1);
-    return parseFloat(change);
-  };
-
   return (
     <div className="p-8 max-w-[1440px] mx-auto">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-          <Sliders className="text-[#005EB8]" size={32} />
-          Simulation Playground
+          <FlaskConical className="text-[#005EB8]" size={32} />
+          Simulation Lab
         </h1>
         <p className="text-gray-600 mt-2">
-          Manually tweak parameters and instantly see the impact on cost, time, strength, and carbon emissions
+          Enter project, mix, curing, material cost, and transport constraints to calculate strength, cost, resources, and timeline readiness.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-8">
-        {/* Left Column - Controls */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+      <div className="space-y-6">
+          <section className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Sliders size={20} />
-              Adjust Parameters
+              <Package size={20} />
+              Project Constraints
             </h2>
+            <div className="grid grid-cols-2 gap-4">
+              <label className="block">
+                <span className="block text-sm font-semibold text-gray-700 mb-2">Element Type</span>
+                <select value={materialName} onChange={(event) => setMaterialName(event.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]">
+                  {MATERIAL_SHAPES.map((shape) => (
+                    <option key={shape} value={shape}>{shape}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="block text-sm font-semibold text-gray-700 mb-2">Project Location</span>
+                <input value={projectLocation} onChange={(event) => setProjectLocation(event.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+              </label>
+              <NumberField label="Length" value={lengthMm} onChange={setLengthMm} min={100} step={100} suffix="mm" />
+              <NumberField label="Width" value={widthMm} onChange={setWidthMm} min={100} step={100} suffix="mm" />
+              <NumberField label="Height" value={heightMm} onChange={setHeightMm} min={100} step={100} suffix="mm" />
+              <NumberField label="Quantity" value={quantity} onChange={setQuantity} min={1} suffix="units" />
+              <NumberField label="Casting Time" value={castingTimeMinutes} onChange={setCastingTimeMinutes} min={5} step={5} suffix="min/unit" />
+            </div>
+          </section>
 
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Curing Temperature: {curingTemp}°C
-                </label>
-                <input
-                  type="range"
-                  min="50"
-                  max="80"
-                  value={curingTemp}
-                  onChange={(e) => setCuringTemp(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>50°C (Slow)</span>
-                  <span>80°C (Fast)</span>
+          <section className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <FlaskConical size={20} />
+              Mix Design Constraints
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              <NumberField label="Cement" value={cement} onChange={setCement} min={100} step={5} suffix="kg/m3" />
+              <NumberField label="Slag" value={slag} onChange={setSlag} min={0} step={5} suffix="kg/m3" />
+              <NumberField label="Fly Ash" value={flyAsh} onChange={setFlyAsh} min={0} step={5} suffix="kg/m3" />
+              <NumberField label="Water" value={water} onChange={setWater} min={60} step={5} suffix="kg/m3" />
+              <NumberField label="Superplasticizer" value={superplasticizer} onChange={setSuperplasticizer} min={0} step={0.5} suffix="kg/m3" />
+              <NumberField label="Coarse Aggregate" value={coarse} onChange={setCoarse} min={200} step={10} suffix="kg/m3" />
+              <NumberField label="Fine Aggregate" value={fine} onChange={setFine} min={200} step={10} suffix="kg/m3" />
+              <NumberField label="Curing Age" value={curingAge} onChange={setCuringAge} min={1} suffix="days" />
+              <label className="block">
+                <span className="block text-sm font-semibold text-gray-700 mb-2">Curing Method</span>
+                <select value={curingMethod} onChange={(event) => setCuringMethod(event.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]">
+                  <option value="ambient">Ambient</option>
+                  <option value="chamber">Chamber</option>
+                  <option value="steam">Steam</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Truck size={20} />
+              Transportation Constraints
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              <label className="block">
+                <span className="block text-sm font-semibold text-gray-700 mb-2">Dispatch From</span>
+                <input value={transportFrom} onChange={(event) => setTransportFrom(event.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" />
+              </label>
+              <label className="block">
+                <span className="block text-sm font-semibold text-gray-700 mb-2">Transport Type</span>
+                <select value={transportType} onChange={(event) => setTransportType(event.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]">
+                  <option value="road">Road</option>
+                  <option value="rail">Rail</option>
+                  <option value="sea">Sea</option>
+                  <option value="viaduct">Viaduct</option>
+                </select>
+              </label>
+              <NumberField label="Distance" value={transportDistanceKm} onChange={setTransportDistanceKm} min={0} step={5} suffix="km" />
+            </div>
+          </section>
+
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 flex items-center justify-between gap-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Ready to Calculate</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Calculate the strength, cost, materials, transport, resources, and emissions for this configuration.
+              </p>
+              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-xs uppercase tracking-wide text-blue-700 font-semibold">Estimated Strength (Regression)</div>
+                <div className="text-2xl font-bold text-gray-900 mt-1">{number(result.strength.estimatedStrength)} MPa</div>
+                <div className="text-xs text-blue-800 mt-1">
+                  Regressor: {number(result.strength.regressionValue)} MPa | Fit (R2): {result.strength.rSquared.toFixed(2)}
                 </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Higher temperature = faster curing but more energy & CO₂
-                </p>
               </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Water/Cement Ratio: {mixRatio}
-                </label>
-                <input
-                  type="range"
-                  min="0.35"
-                  max="0.55"
-                  step="0.01"
-                  value={mixRatio}
-                  onChange={(e) => setMixRatio(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>0.35 (Strong)</span>
-                  <span>0.55 (Weak)</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Lower w/c ratio = higher strength but harder to work with
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Hold Time: {holdTime}h
-                </label>
-                <input
-                  type="range"
-                  min="2"
-                  max="8"
-                  value={holdTime}
-                  onChange={(e) => setHoldTime(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>2h (Quick)</span>
-                  <span>8h (Safe)</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Longer hold time = better strength but more cycle time
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Transportation Distance: {transportDistance} km
-                </label>
-                <input
-                  type="range"
-                  min="5"
-                  max="200"
-                  value={transportDistance}
-                  onChange={(e) => setTransportDistance(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>5 km (Local)</span>
-                  <span>200 km (Long)</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Transport cost = ₹{transportCost.toLocaleString()} (base + distance increment). Increment beyond 25 km: ₹{Math.round(transportDistanceIncrement).toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Cement Content: {cementContent} kg/m³
-                </label>
-                <input type="range" min="280" max="500" value={cementContent} onChange={(e) => setCementContent(Number(e.target.value))} className="w-full" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Fly Ash Content: {flyAshContent} kg/m³
-                </label>
-                <input type="range" min="0" max="120" value={flyAshContent} onChange={(e) => setFlyAshContent(Number(e.target.value))} className="w-full" />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Order Quantity: {quantity} units
-                </label>
-                <input
-                  type="range"
-                  min="10"
-                  max="1000"
-                  step="10"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>10 units</span>
-                  <span>1000 units</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Larger orders benefit from economies of scale in material & transport costs
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Automation Level: {automationLevel}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={automationLevel}
-                  onChange={(e) => setAutomationLevel(Number(e.target.value))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>Manual</span>
-                  <span>Fully Automated</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-2 bg-blue-50 p-2 rounded">
-                  Higher automation = more upfront cost but consistent quality
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-lg">
-                <input
-                  type="checkbox"
-                  checked={accelerator}
-                  onChange={(e) => setAccelerator(e.target.checked)}
-                  className="w-5 h-5"
-                  id="accelerator"
-                />
-                <label htmlFor="accelerator" className="font-semibold text-gray-900 cursor-pointer">
-                  Use Chemical Accelerator
-                </label>
-              </div>
-              {accelerator && (
-                <p className="text-xs text-gray-600 bg-yellow-50 p-2 rounded">
-                  Accelerator adds ₹500 but reduces cycle time by 1.5h and boosts early strength
-                </p>
+            </div>
+            <button
+              onClick={async () => {
+                setIsCalculating(true);
+                
+                // Simulate calculation time
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Navigate to results page with calculation data
+                navigate('/simulation-playground-results', { state: result });
+                setIsCalculating(false);
+              }}
+              disabled={isCalculating}
+              className="px-8 py-3 bg-[#005EB8] text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {isCalculating ? (
+                <>
+                  <Loader2 className="animate-spin" size={18} />
+                  Calculating...
+                </>
+              ) : (
+                <>
+                  <BarChart3 size={18} />
+                  Calculate Parameters
+                </>
               )}
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-[#005EB8] to-blue-600 rounded-xl p-6 text-white">
-            <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
-              <Sparkles size={20} />
-              AI Tip
-            </h3>
-            <p className="text-sm text-blue-100">
-              For M50 mix with {curingTemp}°C curing: Consider {curingTemp > 70 ? 'reducing' : 'increasing'} temperature slightly to balance strength gain and energy cost.
-              Current setup is {co2 < 30 ? 'eco-friendly' : 'energy-intensive'}.
-            </p>
-          </div>
-        </div>
-
-        {/* Right Column - Real-time Results */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <BarChart3 size={20} />
-              Instant Impact Analysis
-            </h2>
-
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-5 border-2 border-green-300">
-                <div className="flex items-center gap-2 mb-2">
-                  <DollarSign className="text-green-700" size={24} />
-                  <span className="text-sm font-semibold text-gray-700">Total Project Cost</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">₹{totalCost.toLocaleString()}</div>
-                <div className="text-xs text-gray-600 mt-2 space-y-1">
-                  <div className="flex justify-between">
-                    <span>Mix & Production:</span>
-                    <span className="font-semibold">₹{mixProductionCost.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Transport ({transportDistance}km):</span>
-                    <span className="font-semibold">₹{transportCost.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Materials ({quantity} units):</span>
-                    <span className="font-semibold">₹{materialCost.toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-5 border-2 border-blue-300">
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock className="text-blue-700" size={24} />
-                  <span className="text-sm font-semibold text-gray-700">Cycle Time</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{cycleTime}h</div>
-                <div className={`text-sm font-semibold mt-1 flex items-center gap-1 ${
-                  getTimeChange() < 0 ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {getTimeChange() < 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
-                  {Math.abs(getTimeChange()).toFixed(1)}% vs baseline ({baseTime}h)
-                </div>
-                <div className="text-xs text-gray-600 mt-2">
-                  {getTimeChange() < 0 ? `Time Saved: ${(baseTime - parseFloat(cycleTime)).toFixed(1)}h` : `Time Added: ${(parseFloat(cycleTime) - baseTime).toFixed(1)}h`}
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-xl p-5 border-2 border-emerald-300">
-                <div className="flex items-center gap-2 mb-2">
-                  <Leaf className="text-emerald-700" size={24} />
-                  <span className="text-sm font-semibold text-gray-700">CO₂ Emissions</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{co2}kg</div>
-                <div className={`text-sm font-semibold mt-1 flex items-center gap-1 ${
-                  getCO2Change() < 0 ? 'text-green-700' : 'text-red-700'
-                }`}>
-                  {getCO2Change() < 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
-                  {Math.abs(getCO2Change()).toFixed(1)}% vs baseline
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-5 border-2 border-orange-300">
-                <div className="flex items-center gap-2 mb-2">
-                  <Zap className="text-orange-700" size={24} />
-                  <span className="text-sm font-semibold text-gray-700">Energy Usage</span>
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{energyUsage}</div>
-                <div className="text-xs text-gray-600 mt-1">kWh per unit</div>
-              </div>
-            </div>
-
-            <div className="bg-purple-50 border-2 border-purple-300 rounded-xl p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <Zap className="text-purple-700" size={24} />
-                <span className="text-sm font-semibold text-gray-700">Strength Gain</span>
-              </div>
-              <div className="text-4xl font-bold text-gray-900">{strength} MPa</div>
-              <div className="text-sm text-gray-600 mt-1">at demoulding (24h)</div>
-
-              <div className="mt-4 bg-white rounded-lg p-3">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-700">Progress to target (28 MPa):</span>
-                  <span className="font-bold text-gray-900">{((parseFloat(strength) / 28) * 100).toFixed(0)}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div
-                    className="bg-gradient-to-r from-purple-500 to-purple-700 h-3 rounded-full"
-                    style={{ width: `${Math.min((parseFloat(strength) / 28) * 100, 100)}%` }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Parameter Summary */}
-          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">Current Configuration Summary</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Curing Temperature</span>
-                <span className="font-semibold text-gray-900">{curingTemp}°C</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Water/Cement Ratio</span>
-                <span className="font-semibold text-gray-900">{mixRatio}</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Hold Time</span>
-                <span className="font-semibold text-gray-900">{holdTime} hours</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Automation Level</span>
-                <span className="font-semibold text-gray-900">{automationLevel}%</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Transport Distance</span>
-                <span className="font-semibold text-gray-900">{transportDistance} km</span>
-              </div>
-              <div className="flex justify-between py-2 border-b">
-                <span className="text-gray-600">Order Quantity</span>
-                <span className="font-semibold text-gray-900">{quantity} units</span>
-              </div>
-              <div className="flex justify-between py-2">
-                <span className="text-gray-600">Chemical Accelerator</span>
-                <span className={`font-semibold ${accelerator ? 'text-green-700' : 'text-gray-500'}`}>
-                  {accelerator ? 'Yes' : 'No'}
-                </span>
-              </div>
-            </div>
-
-            <button className="w-full mt-4 bg-[#005EB8] text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors">
-              Save This Configuration
             </button>
           </div>
-        </div>
       </div>
     </div>
   );

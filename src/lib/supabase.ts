@@ -14,6 +14,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+const PROCESS_TABLE = 'process_records';
+
 // Types for processes
 export interface ProcessRecord {
   id: string;
@@ -27,7 +29,7 @@ export interface ProcessRecord {
   quantity: number;
   scheduled_start_time: string;
   scheduled_end_time: string;
-  strategy_type: 'cheapest' | 'fastest' | 'greenest';
+  strategy_type: 'cheapest' | 'fastest' | 'greenest' | 'manual';
   cement: number;
   slag: number;
   fly_ash: number;
@@ -51,12 +53,15 @@ export interface ProcessRecord {
   project_location?: string;
   latitude?: number;
   longitude?: number;
+  current_maturity?: number;
+  current_temperature?: number;
+  target_strength?: number;
 }
 
 // Fetch all processes
 export async function getProcesses() {
   const { data, error } = await supabase
-    .from('processes')
+    .from(PROCESS_TABLE)
     .select('*')
     .order('scheduled_start_time', { ascending: true });
 
@@ -71,7 +76,7 @@ export async function getProcesses() {
 // Add new process
 export async function createProcess(process: Omit<ProcessRecord, 'id' | 'created_at' | 'updated_at'>) {
   const { data, error } = await supabase
-    .from('processes')
+    .from(PROCESS_TABLE)
     .insert([process])
     .select()
     .single();
@@ -91,7 +96,7 @@ export async function checkTimelineConflict(
   excludeId?: string
 ) {
   const { data, error } = await supabase
-    .from('processes')
+    .from(PROCESS_TABLE)
     .select('*')
     .gte('scheduled_end_time', scheduledStartTime)
     .lte('scheduled_start_time', scheduledEndTime)
@@ -112,7 +117,7 @@ export async function checkTimelineConflict(
 // Update process
 export async function updateProcess(id: string, updates: Partial<ProcessRecord>) {
   const { data, error } = await supabase
-    .from('processes')
+    .from(PROCESS_TABLE)
     .update(updates)
     .eq('id', id)
     .select()
@@ -129,7 +134,7 @@ export async function updateProcess(id: string, updates: Partial<ProcessRecord>)
 // Delete process
 export async function deleteProcess(id: string) {
   const { error } = await supabase
-    .from('processes')
+    .from(PROCESS_TABLE)
     .delete()
     .eq('id', id);
 

@@ -1,101 +1,279 @@
 import { useLocation, useNavigate } from "react-router";
-import { Clock, DollarSign, Leaf, Zap, TrendingDown, AlertTriangle, CheckCircle2, ThermometerSun, Droplets, ArrowLeft, Download, Sparkles, BarChart3, Target } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Clock, DollarSign, Leaf, Zap, TrendingDown, AlertTriangle, CheckCircle2, ThermometerSun, Droplets, ArrowLeft, Download, Sparkles, BarChart3, Target, Loader2, CalendarPlus } from "lucide-react";
+import { createProcess, checkTimelineConflict, ProcessRecord } from "../../lib/supabase";
+import { estimateConcreteStrength } from "../../lib/strengthEstimator";
+
+const transportMultiplier: Record<string, number> = {
+  road: 1,
+  rail: 0.78,
+  sea: 0.55,
+  viaduct: 1.25,
+};
 
 export function SimulationResults() {
   const location = useLocation();
   const navigate = useNavigate();
   const formData = location.state || {};
+  const [isLoading, setIsLoading] = useState(true);
+    const [scheduledStartTime, setScheduledStartTime] = useState("");
+  const [scheduledEndTime, setScheduledEndTime] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [timelineConflicts, setTimelineConflicts] = useState<ProcessRecord[]>([]);
 
-  const strategies = [
-    {
-      id: "fastest",
-      title: "FASTEST - Steam Accelerated",
-      cycleTime: "10.2h",
-      cost: "₹12,450",
-      co2: "38kg",
-      energy: "156 kWh",
-      risk: "Low",
-      deadline: "Safe",
-      color: "border-blue-500 bg-blue-50",
-      badge: "bg-blue-500",
-      icon: Zap,
-      details: [
-        "Peak 72°C × 3.5h",
-        "2h delay + 2h ramp",
-        "1.5h cool down",
-        "Energy +12%"
-      ],
-      recommendation: "Best for urgent deadlines. Achieves target strength in minimum time with controlled energy consumption."
-    },
-    {
-      id: "cheapest",
-      title: "CHEAPEST - Optimized Steam",
-      cycleTime: "12.8h",
-      cost: "₹8,450",
-      co2: "28kg",
-      energy: "98 kWh",
-      risk: "Medium",
-      deadline: "Safe",
-      color: "border-green-500 bg-green-50",
-      badge: "bg-green-500",
-      icon: DollarSign,
-      details: [
-        "Peak 65°C × 4h",
-        "3h delay + 1.5h ramp",
-        "2h cool down",
-        "Energy -18%"
-      ],
-      recommendation: "Maximizes cost efficiency while maintaining safety. Ideal for projects with flexible timelines."
-    },
-    {
-      id: "eco",
-      title: "ECO-FRIENDLY - Hybrid Curing",
-      cycleTime: "15.2h",
-      cost: "₹9,200",
-      co2: "18kg",
-      energy: "68 kWh",
-      risk: "Medium",
-      deadline: "Marginal",
-      color: "border-emerald-500 bg-emerald-50",
-      badge: "bg-emerald-500",
-      icon: Leaf,
-      details: [
-        "Ambient + low steam",
-        "4h delay + slow ramp",
-        "Natural cool down",
-        "Energy -32%"
-      ],
-      recommendation: "Best for sustainability goals. Combines ambient curing with minimal steam assistance."
-    },
-    {
-      id: "balanced",
-      title: "BALANCED - AI Recommended",
-      cycleTime: "11.5h",
-      cost: "₹10,200",
-      co2: "26kg",
-      energy: "112 kWh",
-      risk: "Low",
-      deadline: "Safe",
-      color: "border-purple-500 bg-purple-50",
-      badge: "bg-purple-500",
-      icon: Target,
-      details: [
-        "Peak 68°C × 3.8h",
-        "2.5h delay + 2h ramp",
-        "1.8h cool down",
-        "Energy -6%"
-      ],
-      recommendation: "Optimal balance across all parameters. Selected based on current weather and yard capacity constraints."
+  useEffect(() => {
+    // Simulate calculation time
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Calculate actual strength based on form data
+  const strengthResult = useMemo(() => {
+    if (Number.isFinite(formData.strength?.estimatedStrength)) {
+      return formData.strength;
     }
-  ];
 
-  const timeline = [
-    { stage: "Casting", duration: "1.0h", color: "bg-gray-400" },
-    { stage: "Initial Cure", duration: "2.5h", color: "bg-blue-300" },
-    { stage: "Steam Cure", duration: "5.8h", color: "bg-orange-400" },
-    { stage: "Cooling", duration: "1.8h", color: "bg-blue-200" },
-    { stage: "De-moulding", duration: "0.4h", color: "bg-green-400" }
+    if (!formData.cement || !formData.water) return null;
+    
+    return estimateConcreteStrength({
+      cement: formData.cement || 350,
+      slag: formData.slag || 0,
+      flyAsh: formData.flyAsh || 0,
+      water: formData.water || 140,
+      superplasticizer: formData.superplasticizer || 0,
+      coarse: formData.coarseAggregate || 1200,
+      fine: formData.fineAggregate || 800,
+      ageDays: formData.curingAge || 14,
+      curingMethod: formData.curingMethod || "steam",
+      ambientTemperature: 32, // Default temperature
+      humidity: 68, // Default humidity
+    });
+  }, [formData]);
+
+  // Calculate costs and resources
+  const calculations = useMemo(() => {
+    if (!formData.cement) return null;
+
+    const volume = ((formData.lengthMm || 0) * (formData.widthMm || 0) * (formData.heightMm || 0)) / 1000000000; // Convert mm³ to m³
+    const concreteVolume = volume * (formData.quantity || 1);
+    const totalBinder = (formData.cement + formData.slag + formData.flyAsh) * concreteVolume;
+    
+    // Material costs
+    const materialCosts = {
+      cement: (formData.cement * concreteVolume * 350) / 1000, // ₹350 per kg
+      slag: (formData.slag * concreteVolume * 280) / 1000, // ₹280 per kg
+      flyAsh: (formData.flyAsh * concreteVolume * 250) / 1000, // ₹250 per kg
+      water: (formData.water * concreteVolume * 2) / 1000, // ₹2 per kg
+      superplasticizer: (formData.superplasticizer * concreteVolume * 45) / 1000, // ₹45 per kg
+      coarse: (formData.coarseAggregate * concreteVolume * 25) / 1000, // ₹25 per kg
+      fine: (formData.fineAggregate * concreteVolume * 30) / 1000, // ₹30 per kg
+    };
+
+    const totalMaterialCost = Object.values(materialCosts).reduce((sum, cost) => sum + cost, 0);
+
+    // Energy costs
+    const steamEnergy = concreteVolume * 150; // ₹150 per m³
+    const electricityEnergy = concreteVolume * 8; // ₹8 per m³
+    const totalEnergyCost = steamEnergy + electricityEnergy;
+
+    // Transport costs
+    const transportCost = 5000 + (formData.transportDistanceKm || 25) * 25 + (formData.quantity || 1) * 100;
+    const adjustedTransportCost = transportCost * transportMultiplier[formData.transportType] || 1;
+
+    // Labor costs
+    const laborCost = ((formData.quantity || 1) * 2 * 800) + ((formData.quantity || 1) * 500) + 1200; // Skilled + unskilled + supervisor
+
+    // Equipment costs
+    const equipmentCost = 50000 + 200000 + 150000; // Mould + chamber + crane (amortized)
+
+    const totalCost = totalMaterialCost + totalEnergyCost + adjustedTransportCost + laborCost + equipmentCost;
+
+    // CO2 calculations
+    const co2Emissions = (
+      (formData.cement * concreteVolume * 0.82) + // Cement: 0.82 kg CO2 per kg
+      (formData.slag * concreteVolume * 0.07) + // Slag: 0.07 kg CO2 per kg
+      (formData.flyAsh * concreteVolume * 0.02) + // Fly ash: 0.02 kg CO2 per kg
+      (steamEnergy * 0.45) + // Steam: 0.45 kg CO2 per kWh
+      (electricityEnergy * 0.82) // Electricity: 0.82 kg CO2 per kWh
+    );
+
+    return {
+      volume: concreteVolume,
+      totalCost: Math.round(totalCost),
+      materialCosts,
+      energyCost: totalEnergyCost,
+      transportCost: adjustedTransportCost,
+      laborCost,
+      equipmentCost,
+      co2Emissions: Math.round(co2Emissions),
+      energyUsage: Math.round(steamEnergy + electricityEnergy),
+    };
+  }, [formData]);
+
+  const addToTimeline = async () => {
+    if (!scheduledStartTime || !scheduledEndTime) {
+      setError("Please provide start and end times");
+      return;
+    }
+
+    setIsAdding(true);
+    setError(null);
+    setSuccess(null);
+    setTimelineConflicts([]);
+
+    try {
+      // Check for timeline conflicts
+      const conflicts = await checkTimelineConflict(scheduledStartTime, scheduledEndTime);
+      if (conflicts.length > 0) {
+        setTimelineConflicts(conflicts);
+        setError("Timeline conflicts detected. Please choose different times.");
+        setIsAdding(false);
+        return;
+      }
+
+      // Create process record with manual strategy
+      console.log("Creating process record with data:", {
+        material_name: formData.materialName || formData.elementType || "Unknown",
+        material_dimensions: `${formData.lengthMm || 0}x${formData.widthMm || 0}x${formData.heightMm || 0}mm`,
+        material_length_mm: formData.lengthMm || 0,
+        material_width_mm: formData.widthMm || 0,
+        material_height_mm: formData.heightMm || 0,
+        quantity: formData.quantity || 1,
+        scheduled_start_time: scheduledStartTime,
+        scheduled_end_time: scheduledEndTime,
+        strategy_type: 'cheapest' as const,
+        cement: formData.cement || 0,
+        slag: formData.slag || 0,
+        fly_ash: formData.flyAsh || 0,
+        water: formData.water || 0,
+        superplasticizer: formData.superplasticizer || 0,
+        coarse: formData.coarseAggregate || 0,
+        fine: formData.fineAggregate || 0,
+        age: formData.curingAge || 14,
+        curing_method: formData.curingMethod || "steam",
+        chambers: formData.chambers || 2,
+        mould: 1,
+        status: 'scheduled' as const,
+        transportation_location: formData.transportFrom || "Precast Yard",
+        transportation_factor: transportMultiplier[formData.transportType] || 1,
+        transportation_cost: calculations?.totalCost || 0,
+        transportation_distance_km: formData.transportDistanceKm || 0,
+        transportation_type: formData.transportType || "road",
+        moulds_required: 1,
+        cranes_required: 1,
+        casting_time_minutes: formData.castingTimeMinutes || 30,
+        project_location: formData.projectLocation || "",
+      });
+
+      const result = await createProcess({
+        material_name: formData.materialName || formData.elementType || "Unknown",
+        material_dimensions: `${formData.lengthMm || 0}x${formData.widthMm || 0}x${formData.heightMm || 0}mm`,
+        material_length_mm: formData.lengthMm || 0,
+        material_width_mm: formData.widthMm || 0,
+        material_height_mm: formData.heightMm || 0,
+        quantity: formData.quantity || 1,
+        scheduled_start_time: scheduledStartTime,
+        scheduled_end_time: scheduledEndTime,
+        strategy_type: 'cheapest' as const,
+        cement: formData.cement || 0,
+        slag: formData.slag || 0,
+        fly_ash: formData.flyAsh || 0,
+        water: formData.water || 0,
+        superplasticizer: formData.superplasticizer || 0,
+        coarse: formData.coarseAggregate || 0,
+        fine: formData.fineAggregate || 0,
+        age: formData.curingAge || 14,
+        curing_method: formData.curingMethod || "steam",
+        chambers: formData.chambers || 2,
+        mould: 1,
+        status: 'scheduled' as const,
+        transportation_location: formData.transportFrom || "Precast Yard",
+        transportation_factor: transportMultiplier[formData.transportType] || 1,
+        transportation_cost: calculations?.totalCost || 0,
+        transportation_distance_km: formData.transportDistanceKm || 0,
+        transportation_type: formData.transportType || "road",
+        moulds_required: 1,
+        cranes_required: 1,
+        casting_time_minutes: formData.castingTimeMinutes || 30,
+        project_location: formData.projectLocation || "",
+      });
+
+      console.log("Create process result:", result);
+      setSuccess("Successfully added to timeline! Check dashboard to view.");
+      setScheduledStartTime("");
+      setScheduledEndTime("");
+    } catch (err) {
+      console.error("Error adding to timeline:", err);
+      setError("Failed to add to timeline. Please try again.");
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  
+  const timeline = useMemo(() => {
+  if (!calculations) return [];
+  
+  const castingTime = (formData.castingTimeMinutes || 30) / 60; // Convert to hours
+  const baseCycleTime = 8 + (formData.curingAge || 14) * 0.5;
+  const steamTime = baseCycleTime * 0.5;
+  const coolingTime = baseCycleTime * 0.15;
+  const demouldTime = 0.4;
+  
+  return [
+    { stage: "Casting", duration: `${castingTime.toFixed(1)}h`, color: "bg-gray-400" },
+    { stage: "Initial Cure", duration: `${(baseCycleTime * 0.2).toFixed(1)}h`, color: "bg-blue-300" },
+    { stage: "Steam Cure", duration: `${steamTime.toFixed(1)}h`, color: "bg-orange-400" },
+    { stage: "Cooling", duration: `${coolingTime.toFixed(1)}h`, color: "bg-blue-200" },
+    { stage: "De-moulding", duration: `${demouldTime.toFixed(1)}h`, color: "bg-green-400" }
   ];
+}, [calculations, formData]);
+
+  // Loading component
+  if (isLoading) {
+    return (
+      <div className="p-8 max-w-[1440px] mx-auto">
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-[#005EB8] rounded-full flex items-center justify-center mb-4 mx-auto">
+              <Loader2 className="text-white animate-spin" size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">AI Simulation in Progress</h1>
+            <p className="text-gray-600 mb-4">Analyzing constraints and calculating optimal strategies...</p>
+            <div className="max-w-md mx-auto">
+              <div className="bg-gray-200 rounded-full h-2 overflow-hidden">
+                <div className="bg-[#005EB8] h-full rounded-full animate-pulse" style={{ width: '70%' }}></div>
+              </div>
+              <div className="flex justify-between text-xs text-gray-500 mt-2">
+                <span>Processing constraints</span>
+                <span>Generating recommendations</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-3 gap-4 text-center text-sm text-gray-600">
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <div className="font-semibold text-gray-900">Weather Analysis</div>
+              <div className="text-green-600">✓ Complete</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <div className="font-semibold text-gray-900">Cost Calculations</div>
+              <div className="text-blue-600">⟳ Processing...</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 border border-gray-200">
+              <div className="font-semibold text-gray-900">Strategy Optimization</div>
+              <div className="text-gray-400">○ Pending</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-[1440px] mx-auto">
@@ -115,8 +293,8 @@ export function SimulationResults() {
               AI Simulation & Optimization Results
             </h1>
             <p className="text-gray-600 mt-2">
-              Analyzed {formData.elementType || "Pier Cap"} with {formData.mixDesign || "M50"} mix design
-              {formData.deadline && ` • Deadline: ${new Date(formData.deadline).toLocaleDateString()}`}
+              Analyzed {formData.materialName || "Pier Cap"} ({(formData.lengthMm || 0) / 1000}m × {(formData.widthMm || 0) / 1000}m × {(formData.heightMm || 0) / 1000}m) • 
+              Estimated Strength: {strengthResult?.estimatedStrength || 0}MPa
             </p>
           </div>
           <button className="flex items-center gap-2 px-6 py-3 bg-[#005EB8] text-white rounded-lg font-semibold hover:bg-blue-700">
@@ -162,138 +340,7 @@ export function SimulationResults() {
         </div>
       </div>
 
-      {/* Recommended Strategies */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Recommended Curing Strategies</h2>
-        <div className="grid grid-cols-2 gap-6">
-          {strategies.map((strategy) => {
-            const Icon = strategy.icon;
-            return (
-              <div key={strategy.id} className={`${strategy.color} border-2 rounded-xl p-6 shadow-lg`}>
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`${strategy.badge} p-3 rounded-lg text-white`}>
-                      <Icon size={28} />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-gray-900">{strategy.title}</h3>
-                      {strategy.id === "balanced" && (
-                        <span className="inline-block mt-1 px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded-full">
-                          AI RECOMMENDED
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-white rounded-lg p-3">
-                    <div className="text-xs text-gray-600">Cycle Time</div>
-                    <div className="text-xl font-bold text-gray-900">{strategy.cycleTime}</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-3">
-                    <div className="text-xs text-gray-600">Cost</div>
-                    <div className="text-xl font-bold text-gray-900">{strategy.cost}</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-3">
-                    <div className="text-xs text-gray-600">CO₂</div>
-                    <div className="text-xl font-bold text-gray-900">{strategy.co2}</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-3">
-                    <div className="text-xs text-gray-600">Energy</div>
-                    <div className="text-xl font-bold text-gray-900">{strategy.energy}</div>
-                  </div>
-                </div>
-
-                <div className="space-y-2 mb-4">
-                  {strategy.details.map((detail, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 bg-gray-600 rounded-full"></div>
-                      <span className="text-sm text-gray-800">{detail}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-sm font-semibold text-gray-700">Risk:</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    strategy.risk === "Low" ? "bg-green-200 text-green-800" : "bg-yellow-200 text-yellow-800"
-                  }`}>
-                    {strategy.risk}
-                  </span>
-                  <span className="text-sm font-semibold text-gray-700 ml-2">Deadline:</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    strategy.deadline === "Safe" ? "bg-green-200 text-green-800" : "bg-orange-200 text-orange-800"
-                  }`}>
-                    {strategy.deadline}
-                  </span>
-                </div>
-
-                <div className="bg-white/70 rounded-lg p-3 mb-4 border border-gray-300">
-                  <p className="text-sm text-gray-800 italic">"{strategy.recommendation}"</p>
-                </div>
-
-                <button className={`w-full ${strategy.badge} text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity`}>
-                  Select This Strategy
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Scenario Comparison Table */}
-      <div className="mb-6 bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <BarChart3 size={24} />
-          Scenario Comparison
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Strategy</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Cycle Time</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Cost</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">CO₂</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Energy</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Risk</th>
-                <th className="px-4 py-3 text-left font-bold text-gray-900">Deadline Safe</th>
-              </tr>
-            </thead>
-            <tbody>
-              {strategies.map((strategy, idx) => (
-                <tr key={idx} className={`border-t ${idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}>
-                  <td className="px-4 py-3 font-semibold text-gray-900">{strategy.title.split(' - ')[1]}</td>
-                  <td className="px-4 py-3">{strategy.cycleTime}</td>
-                  <td className="px-4 py-3">{strategy.cost}</td>
-                  <td className="px-4 py-3">
-                    <span className={parseInt(strategy.co2) < 25 ? 'text-green-700 font-semibold' : 'text-gray-900'}>
-                      {strategy.co2}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{strategy.energy}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      strategy.risk === "Low" ? "bg-green-200 text-green-800" : "bg-yellow-200 text-yellow-800"
-                    }`}>
-                      {strategy.risk}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                      strategy.deadline === "Safe" ? "bg-green-200 text-green-800" : "bg-orange-200 text-orange-800"
-                    }`}>
-                      {strategy.deadline === "Safe" ? "Yes" : "Marginal"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
+      
       {/* Production Timeline */}
       <div className="mb-6 bg-white rounded-xl p-6 shadow-sm border border-gray-200">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Production Timeline Visualization</h2>
@@ -306,7 +353,7 @@ export function SimulationResults() {
               <div className="flex-1 bg-gray-200 rounded-full h-8 relative">
                 <div
                   className={`${stage.color} h-full rounded-full flex items-center justify-center text-white font-semibold text-sm`}
-                  style={{ width: `${(parseFloat(stage.duration) / 11.5) * 100}%` }}
+                  style={{ width: `${(parseFloat(stage.duration) / (8 + (formData.curingAge || 14) * 0.5)) * 100}%` }}
                 >
                   {stage.duration}
                 </div>
@@ -316,7 +363,7 @@ export function SimulationResults() {
         </div>
 
         <div className="mt-4 text-sm text-gray-600">
-          <strong>Total Cycle Time:</strong> 11.5 hours (Casting → Ready for De-moulding)
+          <strong>Total Cycle Time:</strong> {(8 + (formData.curingAge || 14) * 0.5).toFixed(1)} hours (Casting → Ready for De-moulding)
         </div>
       </div>
 
@@ -329,26 +376,28 @@ export function SimulationResults() {
         <div className="grid grid-cols-4 gap-4 mb-4">
           <div className="bg-white rounded-lg p-4 border border-green-200">
             <div className="text-sm text-gray-600 mb-1">Estimated CO₂</div>
-            <div className="text-3xl font-bold text-gray-900">26kg</div>
+            <div className="text-3xl font-bold text-gray-900">{calculations?.co2Emissions || 0}kg</div>
             <div className="text-xs text-green-700 font-semibold mt-1 flex items-center gap-1">
               <TrendingDown size={14} />
-              18% below baseline
+              {Math.round(((1 - (calculations?.co2Emissions || 0) / (calculations?.co2Emissions || 1) * 1.2)) * 100)}% below baseline
             </div>
           </div>
           <div className="bg-white rounded-lg p-4 border border-green-200">
-            <div className="text-sm text-gray-600 mb-1">Cement Reduction</div>
-            <div className="text-3xl font-bold text-gray-900">12%</div>
-            <div className="text-xs text-gray-600 mt-1">via SCM substitution</div>
+            <div className="text-sm text-gray-600 mb-1">Cement Content</div>
+            <div className="text-3xl font-bold text-gray-900">{formData.cement || 350}kg</div>
+            <div className="text-xs text-gray-600 mt-1">per m³ concrete</div>
           </div>
           <div className="bg-white rounded-lg p-4 border border-green-200">
             <div className="text-sm text-gray-600 mb-1">Energy Usage</div>
-            <div className="text-3xl font-bold text-gray-900">112</div>
+            <div className="text-3xl font-bold text-gray-900">{calculations?.energyUsage || 0}</div>
             <div className="text-xs text-gray-600 mt-1">kWh per unit</div>
           </div>
           <div className="bg-white rounded-lg p-4 border border-green-200">
-            <div className="text-sm text-gray-600 mb-1">Water Savings</div>
-            <div className="text-3xl font-bold text-gray-900">8%</div>
-            <div className="text-xs text-green-700 font-semibold mt-1">vs standard process</div>
+            <div className="text-sm text-gray-600 mb-1">Water/Binder Ratio</div>
+            <div className="text-3xl font-bold text-gray-900">{strengthResult?.waterCementitiousRatio || 0}</div>
+            <div className="text-xs text-green-700 font-semibold mt-1">
+              {(strengthResult?.waterCementitiousRatio && strengthResult.waterCementitiousRatio <= 0.42 ? 'Optimal' : 'High')}
+            </div>
           </div>
         </div>
 
@@ -372,14 +421,95 @@ export function SimulationResults() {
         </h2>
         <div className="bg-white rounded-lg p-4 border border-purple-200">
           <p className="text-gray-800 leading-relaxed">
-            <strong>Steam curing with balanced parameters was selected</strong> because the deadline requires completing 2 production cycles per day.
-            Current weather conditions (32°C ambient, 68% humidity) favor accelerated curing with controlled chamber temperature.
-            The AI analyzed 127 similar Pier Cap productions with M50 mix and determined that a peak temperature of 68°C held for 3.8 hours
-            achieves optimal strength development while staying within your budget constraint of ₹{formData.budgetLimit || '15,000'} per unit.
-            The sustainability priority of {formData.sustainabilityPriority || 50}% was factored into minimizing CO₂ emissions without
-            compromising deadline safety.
+            <strong>Steam curing with balanced parameters was selected</strong> based on your mix design and curing requirements.
+            The calculated strength is {strengthResult?.estimatedStrength || 0}MPa with a {strengthResult?.confidence || 'Medium'} confidence level.
+            Current weather conditions (32°C ambient, 68% humidity) and water-binder ratio of {strengthResult?.waterCementitiousRatio || 0} favor this curing approach.
+            The total cost of ₹{calculations?.totalCost?.toLocaleString() || 0} per unit includes material costs (₹{Math.round(Object.values(calculations?.materialCosts || {}).reduce((sum, cost) => sum + cost, 0)).toLocaleString()}), 
+            energy consumption of {calculations?.energyUsage || 0} kWh, and CO₂ emissions of {calculations?.co2Emissions || 0}kg.
+            This strategy provides the optimal balance between strength development, cost efficiency, and environmental impact.
           </p>
         </div>
+      </div>
+
+      {/* Add to Timeline Section */}
+      <div className="mt-6 bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <CalendarPlus size={20} />
+          Add Your Configuration To Timeline
+        </h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Choose production time slots. Your manual configuration will be saved in Supabase and appear on dashboard.
+        </p>
+
+        {error && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+            <p className="font-semibold">{error}</p>
+            {timelineConflicts.map((conflict) => (
+              <p key={conflict.id} className="mt-1">
+                Conflict: {conflict.material_name} from {new Date(conflict.scheduled_start_time).toLocaleString()} to {new Date(conflict.scheduled_end_time).toLocaleString()}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm font-semibold text-green-800">
+            {success}
+          </div>
+        )}
+
+        <div className="mb-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <p className="text-sm font-semibold text-blue-900">
+              Configuration: {formData.materialName || "Manual Setup"}
+            </p>
+            <p className="text-xs text-blue-700 mt-1">Strategy Type: Cheapest • Strength: {strengthResult?.estimatedStrength || 0}MPa</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <label className="block">
+            <span className="block text-sm font-semibold text-gray-700 mb-2">Start Time</span>
+            <input 
+              type="datetime-local" 
+              value={scheduledStartTime} 
+              onChange={(event) => setScheduledStartTime(event.target.value)} 
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" 
+            />
+          </label>
+          <label className="block">
+            <span className="block text-sm font-semibold text-gray-700 mb-2">End Time</span>
+            <input 
+              type="datetime-local" 
+              value={scheduledEndTime} 
+              onChange={(event) => setScheduledEndTime(event.target.value)} 
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#005EB8]" 
+            />
+          </label>
+        </div>
+
+        <button
+          onClick={() => {
+            console.log("Button clicked, isAdding:", isAdding);
+            console.log("scheduledStartTime:", scheduledStartTime);
+            console.log("scheduledEndTime:", scheduledEndTime);
+            addToTimeline();
+          }}
+          disabled={isAdding}
+          className="w-full bg-[#005EB8] text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {isAdding ? (
+            <>
+              <Loader2 className="animate-spin" size={18} />
+              Adding to Timeline...
+            </>
+          ) : (
+            <>
+              <CalendarPlus size={18} />
+              Add to Timeline
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
